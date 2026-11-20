@@ -562,6 +562,15 @@ public final class Pages {
                 + esc(c.t("Transfer")) + "</dt><dd>" + Fmt.seconds(Analysis.dn(t.get("transfer"))) + "</dd></div><div><dt>" + esc(c.t("Total")) + "</dt><dd>" + Fmt.seconds(Analysis.dn(t.get("total"))) + "</dd></div></dl>";
     }
 
+    static String harQuery(Map<String, String[]> params) {
+        StringBuilder q = new StringBuilder();
+        for (String k : new String[] {"src", "src_port", "dst", "port", "kind", "url", "min_size", "size_of", "start", "end"}) {
+            String v = Inspect.str(params, k);
+            if (v != null) q.append(q.length() == 0 ? "?" : "&").append(k).append('=').append(java.net.URLEncoder.encode(v, java.nio.charset.StandardCharsets.UTF_8));
+        }
+        return q.toString();
+    }
+
     @SuppressWarnings("unchecked")
     public static String inspectPage(Ctx c, Map<String, Object> meta, Map<String, String[]> params, Map<String, Object> result, Map<String, Object> inspected) {
         String id = (String) meta.get("id");
@@ -591,6 +600,40 @@ public final class Pages {
         sb.append("<datalist id=\"srcs\">"); for (String x : srcs) sb.append("<option>").append(esc(x)).append("</option>");
         sb.append("</datalist><datalist id=\"dsts\">"); for (String x : dsts) sb.append("<option>").append(esc(x)).append("</option>");
         sb.append("</datalist><button class=\"primary\">").append(esc(c.t("Inspect"))).append("</button></form>");
+        Double fs = Inspect.dbl(params, "start"), fe = Inspect.dbl(params, "end");
+        if (fs != null || fe != null)
+            sb.append("<p class=\"hint\">").append(esc(c.t("Only requests from {start} to {end}.", "start", fs == null ? "" : Fmt.when(fs), "end", fe == null ? "" : Fmt.when(fe))))
+              .append(" <a href=\"").append(c.path()).append("/a/").append(id).append("/inspect\">").append(esc(c.t("Show the whole capture"))).append("</a></p>");
+        Map<Integer, Integer> perStream = new HashMap<>();
+        for (Map<String, Object> x : (List<Map<String, Object>>) result.get("transactions")) perStream.merge(((Number) x.get("stream")).intValue(), 1, Integer::sum);
+        List<Map<String, Object>> flows = new ArrayList<>();
+        for (Map<String, Object> k : conns) {
+            if (!Inspect.connMatches(new Inspect.Query(null, null, null, null, null, null, null, "total", fs, fe), k)) continue;
+            flows.add(k);
+        }
+        flows.sort((a, b) -> {
+            int ra = perStream.getOrDefault(((Number) a.get("stream")).intValue(), 0), rb = perStream.getOrDefault(((Number) b.get("stream")).intValue(), 0);
+            if (ra != rb) return Integer.compare(rb, ra);
+            int pa = (int) Analysis.d(a.get("packets")), pb = (int) Analysis.d(b.get("packets"));
+            if (pa != pb) return Integer.compare(pb, pa);
+            return Integer.compare(((Number) a.get("stream")).intValue(), ((Number) b.get("stream")).intValue());
+        });
+        if (!flows.isEmpty()) {
+            sb.append("<div class=\"top-flows\"><h3>").append(esc(c.t("Most called flows"))).append("</h3><p class=\"hint\">")
+              .append(esc(c.t("Source to destination with the most HTTP requests, or the most packets where no request was read. Select one to fill the filter and inspect it.")))
+              .append("</p><ul>");
+            for (Map<String, Object> x : flows.subList(0, Math.min(10, flows.size()))) {
+                int rq = perStream.getOrDefault(((Number) x.get("stream")).intValue(), 0);
+                sb.append("<li><button type=\"button\" class=\"flow-pick\" data-src=\"").append(esc(x.get("client_ip"))).append("\" data-src-port=\"").append(esc(x.get("client_port")))
+                  .append("\" data-dst=\"").append(esc(x.get("server_ip"))).append("\" data-port=\"").append(esc(x.get("server_port"))).append("\"><code>")
+                  .append(esc(x.get("client_ip"))).append(":").append(esc(x.get("client_port"))).append(" → ").append(esc(x.get("server_ip"))).append(":").append(esc(x.get("server_port")))
+                  .append("</code> <span class=\"muted\">").append(esc(x.get("kind"))).append(" · ")
+                  .append(esc(rq > 0 ? c.t("{n} requests", "n", rq) : c.t("{n} packets", "n", (long) Analysis.d(x.get("packets"))))).append("</span></button></li>");
+            }
+            sb.append("</ul></div>");
+        }
+        sb.append("<p class=\"chart-actions\"><a href=\"").append(c.path()).append("/export/").append(id).append("/requests.har").append(harQuery(params)).append("\">")
+          .append(esc(c.t("Download these requests (HAR)"))).append("</a></p>");
         sb.append("<div class=\"filter-row\">");
         List<Map<String, Object>> saved = Records.filters();
         if (!saved.isEmpty()) {

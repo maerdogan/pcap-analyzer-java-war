@@ -223,7 +223,7 @@ public class AppServlet extends HttpServlet {
             download(res, "text/html; charset=utf-8", base + "-report.html", Pages.reportPage(c, meta, result, css).getBytes(StandardCharsets.UTF_8));
             return;
         }
-        if (name.equals("requests") && fmt.equals("har")) { download(res, "application/json", base + "-requests.har", Exports.har(result, details(p[0])).getBytes(StandardCharsets.UTF_8)); return; }
+        if (name.equals("requests") && fmt.equals("har")) { download(res, "application/json", base + "-requests.har", Exports.har(Inspect.filtered(Inspect.query(req.getParameterMap()), result), details(p[0])).getBytes(StandardCharsets.UTF_8)); return; }
         if (!Exports.TABLES.contains(name) || !Exports.FORMATS.containsKey(fmt)) { res.sendError(404); return; }
         download(res, Exports.FORMATS.get(fmt), base + "-" + name + "." + fmt, Exports.render(Exports.table(name, result, c.lang()), fmt, c.lang()));
     }

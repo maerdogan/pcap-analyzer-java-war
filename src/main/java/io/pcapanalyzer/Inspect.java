@@ -40,6 +40,30 @@ public final class Inspect {
         return true;
     }
 
+    /** The result with only the connections and requests the query selects. */
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> filtered(Query q, Map<String, Object> result) {
+        Set<Integer> keep = new HashSet<>();
+        List<Map<String, Object>> conns = new ArrayList<>();
+        for (Map<String, Object> c : (List<Map<String, Object>>) result.get("connections")) if (connMatches(q, c)) { conns.add(c); keep.add(((Number) c.get("stream")).intValue()); }
+        List<Map<String, Object>> txns = new ArrayList<>();
+        for (Map<String, Object> x : (List<Map<String, Object>>) result.get("transactions")) {
+            if (!keep.contains(((Number) x.get("stream")).intValue())) continue;
+            if (q.url() != null && !String.valueOf(x.get("uri")).toLowerCase().contains(q.url().toLowerCase())) continue;
+            if (q.start() != null && Analysis.d(x.get("req_start")) < q.start()) continue;
+            if (q.end() != null && Analysis.d(x.get("req_start")) > q.end()) continue;
+            if (q.minSize() != null) {
+                double rq = Analysis.d(x.get("req_bytes")), rs = Analysis.d(x.get("resp_bytes"));
+                double size = switch (q.sizeOf()) { case "request" -> rq; case "response" -> rs; case "packet" -> Math.max(rq, rs); default -> rq + rs; };
+                if (size <= q.minSize()) continue;
+            }
+            txns.add(x);
+        }
+        Map<String, Object> out = new LinkedHashMap<>(result);
+        out.put("connections", conns); out.put("transactions", txns);
+        return out;
+    }
+
     @SuppressWarnings("unchecked")
     public static Map<String, Object> run(Query q, Map<String, Object> result) {
         List<Map<String, Object>> conns = new ArrayList<>(), all = (List<Map<String, Object>>) result.get("connections");
