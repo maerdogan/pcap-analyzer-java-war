@@ -877,14 +877,14 @@ public class AppServlet extends HttpServlet {
             }
             if (parts.size() > 1) {
                 long total = 0;
-                for (Path pp : parts) { if (!looksLikeCapture(pp)) throw new TShark.TsharkException(c.t("This is not a pcap or pcapng capture.")); total += Files.size(pp); }
+                for (Path pp : parts) { if (!looksLikeCapture(pp)) throw new TShark.TsharkException(c.t("This is not a pcap, pcapng or NetScaler trace capture.")); total += Files.size(pp); }
                 if (total > Settings.MAX_UPLOAD) throw new TShark.TsharkException(c.t("The capture is larger than the limit."));
                 Path joined = dir.resolve("joined.bin");
                 TShark.merge(parts, joined, 300);
                 for (Path pp : parts) Files.deleteIfExists(pp);
                 Files.move(joined, cap);
             }
-            if (!looksLikeCapture(cap)) throw new TShark.TsharkException(c.t("This is not a pcap or pcapng capture."));
+            if (!looksLikeCapture(cap)) throw new TShark.TsharkException(c.t("This is not a pcap, pcapng or NetScaler trace capture."));
             if (api) {
                 final Path fcap = cap, fkey = keylog, frsa = rsa;
                 final List<String> fdecode = decode;
@@ -955,12 +955,19 @@ public class AppServlet extends HttpServlet {
         Files.move(out, f, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private static boolean looksLikeCapture(Path f) throws IOException {
-        byte[] h = new byte[4];
-        try (InputStream in = Files.newInputStream(f)) {
-            if (in.readNBytes(h, 0, 4) < 4) return false;
-        }
+    static boolean looksLikeCapture(Path f) throws IOException {
+        byte[] h = new byte[512];
+        int n;
+        try (InputStream in = Files.newInputStream(f)) { n = in.readNBytes(h, 0, h.length); }
+        if (n < 4) return false;
         int m = ((h[0] & 0xff) << 24) | ((h[1] & 0xff) << 16) | ((h[2] & 0xff) << 8) | (h[3] & 0xff);
-        return m == 0xa1b2c3d4 || m == 0xd4c3b2a1 || m == 0xa1b23c4d || m == 0x4d3cb2a1 || m == 0x0a0d0d0a;
+        return m == 0xa1b2c3d4 || m == 0xd4c3b2a1 || m == 0xa1b23c4d || m == 0x4d3cb2a1 || m == 0x0a0d0d0a || isNsTrace(h, n);
+    }
+
+    /** A NetScaler trace (nstrace, from "start nstrace") opens with a signature record that names its version,
+     *  such as "NetScaler V35 Performance Data". tshark reads versions 1.0 to 3.5. */
+    static boolean isNsTrace(byte[] head, int n) {
+        String text = new String(head, 0, n, StandardCharsets.ISO_8859_1);
+        return java.util.regex.Pattern.compile("NetScaler V\\d\\d Performance Data").matcher(text).find();
     }
 }
