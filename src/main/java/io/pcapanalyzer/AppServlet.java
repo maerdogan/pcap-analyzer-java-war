@@ -832,14 +832,22 @@ public class AppServlet extends HttpServlet {
         String name = Path.of(Optional.ofNullable(part.getSubmittedFileName()).orElse("capture")).getFileName().toString();
         Path keylog = null;
         try {
-            Part kp = req.getPart("keylog");
-            if (kp != null && kp.getSize() > 0) {
-                if (kp.getSize() > (64L << 20)) throw new TShark.TsharkException(c.t("Key log is too large."));
+            // Several key logs, such as one per TLS leg on both sides of a NetScaler, are joined into one.
+            List<Path> logs = new ArrayList<>();
+            long keyBytes = 0;
+            for (Part kp : req.getParts()) {
+                if (!"keylog".equals(kp.getName()) || kp.getSize() == 0) continue;
+                keyBytes += kp.getSize();
+                if (keyBytes > KeyLogs.MAX_BYTES) throw new TShark.TsharkException(c.t("Key log is too large."));
+                Path one = dir.resolve("keylog-" + logs.size() + ".tmp");
+                try (InputStream in = kp.getInputStream()) { Files.copy(in, one); }
+                logs.add(one);
+                if (!KeyLogs.looksLikeKeyLog(one)) throw new TShark.TsharkException(c.t("This is not a TLS key log."));
+            }
+            if (!logs.isEmpty()) {
                 keylog = dir.resolve("keylog.tmp");
-                try (InputStream in = kp.getInputStream()) { Files.copy(in, keylog); }
-                String head = new String(Files.readAllBytes(keylog), 0, (int) Math.min(Files.size(keylog), 4096), StandardCharsets.ISO_8859_1);
-                if (!(head.contains("CLIENT_RANDOM ") || head.contains("_TRAFFIC_SECRET") || head.contains("RSA ")))
-                    throw new TShark.TsharkException(c.t("This is not a TLS key log."));
+                KeyLogs.join(logs, keylog);
+                for (Path one : logs) Files.deleteIfExists(one);
             }
             Path rsa = null;
             Part rp = req.getPart("rsa_key");

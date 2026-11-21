@@ -8,7 +8,7 @@ import java.util.*;
 /**
  * Command line of the same engine, writing into the same work folder as the web pages.
  *
- *   analyze FILE [--keylog F] [--rsa-key F] [--host IP] [--port N] [--display-filter EXPR] [--decode-as RULE]
+ *   analyze FILE [--keylog F ...] [--rsa-key F] [--host IP] [--port N] [--display-filter EXPR] [--decode-as RULE]
  *   list
  *   inspect ID [--src IP] [--src-port N] [--dst IP] [--port N] [--kind K] [--url TEXT]
  *   check ID [--p95 S] [--error-rate PERCENT] [--slowest S]      exit code 2 when a limit is broken
@@ -23,7 +23,9 @@ public final class Cli {
         List<String> pos = new ArrayList<>(), decode = new ArrayList<>();
         for (int i = 1; i < args.length; i++) {
             if (args[i].startsWith("--") && i + 1 < args.length) {
-                if (args[i].equals("--decode-as")) decode.add(args[++i]); else opt.put(args[i].substring(2), args[++i]);
+                if (args[i].equals("--decode-as")) decode.add(args[++i]);
+                else if (args[i].equals("--keylog")) opt.merge("keylog", args[++i], (a, b) -> a + "\u0000" + b); // may be given more than once
+                else opt.put(args[i].substring(2), args[++i]);
             } else pos.add(args[i]);
         }
         switch (args[0]) {
@@ -37,7 +39,7 @@ public final class Cli {
     }
 
     private static void usage() {
-        System.out.println("usage: java -jar pcap-analyzer-cli.jar analyze FILE [--keylog F] [--rsa-key F] [--host IP] [--host2 IP] [--port N] [--display-filter EXPR] [--decode-as RULE]\n"
+        System.out.println("usage: java -jar pcap-analyzer-cli.jar analyze FILE [--keylog F ...] [--rsa-key F] [--host IP] [--host2 IP] [--port N] [--display-filter EXPR] [--decode-as RULE]\n"
                 + "       list | inspect ID [--src IP] [--src-port N] [--dst IP] [--port N] [--kind K] [--url TEXT]\n"
                 + "       check ID [--p95 S] [--error-rate PERCENT] [--slowest S]   (exit code 2 when a limit is broken)\n"
                 + "       set-password\nSettings come from the same PCAP_ANALYZER_* variables as the web application.");
@@ -84,7 +86,10 @@ public final class Cli {
         Files.copy(file, cap);
         // Keys are copied into the analysis folder first, so removing them after the analysis never touches the user's own files.
         Path key = null, rsa = null;
-        if (opt.get("keylog") != null) { key = dir.resolve("keylog.tmp"); Files.copy(Path.of(opt.get("keylog")), key); }
+        if (opt.get("keylog") != null) {
+            key = dir.resolve("keylog.tmp");
+            KeyLogs.join(java.util.Arrays.stream(opt.get("keylog").split("\u0000")).map(Path::of).toList(), key);
+        }
         if (opt.get("rsa-key") != null) { rsa = dir.resolve("rsa.tmp"); Files.copy(Path.of(opt.get("rsa-key")), rsa); }
         try {
             Runner.analyze(id, dir, cap, key, rsa, decode, filter, file.getFileName().toString(), "cli");

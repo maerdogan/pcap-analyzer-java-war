@@ -151,7 +151,7 @@ public final class Pages {
         sb.append("<label class=\"drop\"><span>").append(esc(c.t("Capture file, up to {n} MB (.cap, .pcap, .pcapng)", "n", maxMb))).append("</span><input type=\"file\" name=\"capture\" required></label>\n");
         sb.append("<details><summary>").append(esc(c.t("Add more parts of the same capture"))).append("</summary><div class=\"fields\"><label>").append(esc(c.t("More parts"))).append(" <input type=\"file\" name=\"more\" multiple></label></div><p class=\"hint\">")
           .append(esc(c.t("Parts are joined in time order. gzip files are unpacked first. The limit applies to the joined size."))).append("</p></details>\n");
-        sb.append("<details><summary>").append(esc(c.t("Decrypt HTTPS"))).append("</summary><div class=\"fields\"><label>").append(esc(c.t("TLS key log file"))).append(" <input type=\"file\" name=\"keylog\"></label><label>")
+        sb.append("<details><summary>").append(esc(c.t("Decrypt HTTPS"))).append("</summary><div class=\"fields\"><label>").append(esc(c.t("TLS key log file"))).append(" <input type=\"file\" name=\"keylog\" multiple><span class=\"hint\">").append(esc(c.t("Select one or more. Give the key logs of both sides of a proxy, such as NetScaler, to decrypt both."))).append("</span></label><label>")
           .append(esc(c.t("RSA private key"))).append(" <input type=\"file\" name=\"rsa_key\"></label></div><p class=\"hint\">")
           .append(esc(c.t("A key log works for all modern TLS. An RSA key only reads old RSA key exchange. Keys are removed after the analysis."))).append("</p></details>\n");
         sb.append("<details><summary>").append(esc(c.t("Analyze only part of the capture"))).append("</summary><div class=\"fields\">");
