@@ -544,7 +544,8 @@ public final class Analysis {
         long drops = b.events.stream().filter(e -> "ack_lost_segment".equals(e.get("event"))).count();
         if (drops > 0) found.add(issue("capture_drops", 1, drops, false));
         String[][] packetRules = {{"malformed", "2", "malformed"}, {"icmp_unreachable", "2", "icmp_unreachable"}, {"dns_errors", "2", "dns_error"}, {"tcp_flags_invalid", "2", "tcp_flags_invalid"},
-                {"port_reused", "2", "port_reused"}, {"ecn_congestion", "3", "ecn_congestion"}, {"sack_blocks", "3", "sack_blocks"}};
+                {"port_reused", "2", "port_reused"}, {"ecn_congestion", "3", "ecn_congestion"}, {"sack_blocks", "3", "sack_blocks"},
+                {"h2_flow_stall", "2", "h2_flow_stall"}, {"h2_reset", "2", "h2_reset"}, {"h2_goaway", "2", "h2_goaway"}};
         for (String[] pr : packetRules) {
             List<Object[]> hit = new ArrayList<>();
             for (Object[] pi : b.packetIssues) if (pr[2].equals(pi[2])) hit.add(pi);

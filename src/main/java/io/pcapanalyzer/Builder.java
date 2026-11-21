@@ -57,6 +57,12 @@ public final class Builder {
         boolean closed;
         double lastT;
         boolean offload;
+        /** HTTP/2 flow control: what each side may still send, on the connection and on each stream, as the peer allowed it. */
+        Map<String, Long> h2ConnWindow = new HashMap<>();
+        Map<String, Long> h2InitialWindow = new HashMap<>(); // set by the peer's SETTINGS for the streams it receives
+        Map<String, Long> h2StreamWindow = new HashMap<>();  // key: sender + "/" + stream id
+        Map<String, Double> h2Blocked = new HashMap<>();     // key: sender + "/" + stream id, or sender + "/0": when its window ran out
+        double h2Stall;
     }
 
     public final Map<Integer, Stream> streams = new TreeMap<>();
@@ -300,9 +306,67 @@ public final class Builder {
         }
     }
 
+    /** HTTP/2 error codes, RFC 9113 section 7. */
+    static final String[] H2_ERRORS = {"NO_ERROR", "PROTOCOL_ERROR", "INTERNAL_ERROR", "FLOW_CONTROL_ERROR", "SETTINGS_TIMEOUT", "STREAM_CLOSED",
+            "FRAME_SIZE_ERROR", "REFUSED_STREAM", "CANCEL", "COMPRESSION_ERROR", "CONNECT_ERROR", "ENHANCE_YOUR_CALM", "INADEQUATE_SECURITY", "HTTP_1_1_REQUIRED"};
+    static final long H2_DEFAULT_WINDOW = 65_535;
+    static final long H2_LOW_WINDOW = 1_024; // less than this left, a sender waits for the peer's WINDOW_UPDATE
+    static final double H2_STALL_MIN_S = 0.001;
+    static final int SETTINGS_INITIAL_WINDOW_SIZE = 4;
+
+    static String h2Error(Long code) {
+        if (code == null) return null;
+        return code >= 0 && code < H2_ERRORS.length ? H2_ERRORS[code.intValue()] : "0x" + Long.toHexString(code);
+    }
+
+    /** Control frames: resets and shutdowns become issues, and flow control windows are followed to find waits on WINDOW_UPDATE. */
+    private void http2Control(Map<String, String> p, Stream s, Pkt pk, String src, String dst, String[] types, String[] ids, String[] lengths) {
+        String[] rst = many(p, "http2.rst_stream.error"), goaway = many(p, "http2.goaway.error"), inc = many(p, "http2.window_update.window_size_increment");
+        String[] setIds = many(p, "http2.settings.id"), setWindows = many(p, "http2.settings.initial_window_size");
+        int ri = 0, gi = 0, wi = 0;
+        for (int k = 0, w = 0; k < setIds.length; k++) {
+            Long id = toLong(setIds[k]);
+            if (id != null && id == SETTINGS_INITIAL_WINDOW_SIZE && w < setWindows.length) {
+                Long v = toLong(setWindows[w++]);
+                if (v != null) s.h2InitialWindow.put(dst, v); // what the sender of SETTINGS lets the other side send per stream
+            }
+        }
+        for (int i = 0; i < types.length; i++) {
+            String ty = types[i];
+            Long sid = i < ids.length ? toLong(ids[i]) : Long.valueOf(0);
+            long id = sid == null ? 0 : sid;
+            if (ty.equals("3") && ri < rst.length) {
+                issue(p, pk.t, "h2_reset", "stream " + id + ": " + h2Error(toLong(rst[ri++])));
+            } else if (ty.equals("7") && gi < goaway.length) {
+                issue(p, pk.t, "h2_goaway", h2Error(toLong(goaway[gi++])));
+            } else if (ty.equals("8") && wi < inc.length) {
+                Long add = toLong(inc[wi++]);
+                if (add == null) continue;
+                // The peer of this frame's sender may send more now.
+                String key = dst + "/" + id;
+                if (id == 0) s.h2ConnWindow.merge(dst, H2_DEFAULT_WINDOW + add, (a, b) -> a + add);
+                else s.h2StreamWindow.merge(key, s.h2InitialWindow.getOrDefault(dst, H2_DEFAULT_WINDOW) + add, (a, b) -> a + add);
+                Double since = s.h2Blocked.remove(key);
+                if (since != null && pk.t - since >= H2_STALL_MIN_S) {
+                    s.h2Stall += pk.t - since;
+                    issue(p, pk.t, "h2_flow_stall", (id == 0 ? "connection" : "stream " + id) + ": " + Math.round((pk.t - since) * 1000) + " ms");
+                }
+            } else if (ty.equals("0") && id != 0) {
+                Long ln = i < lengths.length ? toLong(lengths[i]) : null;
+                if (ln == null || ln == 0) continue;
+                long conn = s.h2ConnWindow.merge(src, H2_DEFAULT_WINDOW - ln, (a, b) -> a - ln);
+                String key = src + "/" + id;
+                long stream = s.h2StreamWindow.merge(key, s.h2InitialWindow.getOrDefault(src, H2_DEFAULT_WINDOW) - ln, (a, b) -> a - ln);
+                if (conn < H2_LOW_WINDOW) s.h2Blocked.putIfAbsent(src + "/0", pk.t);
+                if (stream < H2_LOW_WINDOW) s.h2Blocked.putIfAbsent(key, pk.t);
+            }
+        }
+    }
+
     private void http2(Map<String, String> p, Stream s, Pkt pk, String src, String dst) {
         String[] types = many(p, "http2.type");
         if (types.length == 0) return;
+        http2Control(p, s, pk, src, dst, types, many(p, "http2.streamid"), many(p, "http2.length"));
         String[] ids = many(p, "http2.streamid"), flags = many(p, "http2.flags"), lengths = many(p, "http2.length"), counts = many(p, "http2.header.count");
         String[] names = many(p, "http2.header.name"), values = many(p, "http2.header.value");
         int hpos = 0, cpos = 0;
