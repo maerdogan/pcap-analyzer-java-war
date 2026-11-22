@@ -498,6 +498,10 @@ public final class Pages {
         facts(sb, c.t("Capture point"), c.t(Character.toUpperCase(raw.charAt(0)) + raw.substring(1)));
         facts(sb, "MSS", conn.get("mss") == null ? "–" : conn.get("mss"));
         facts(sb, "SACK", Boolean.TRUE.equals(conn.get("sack")) ? c.t("Yes") : c.t("No"));
+        if (conn.get("ns_peer") != null)
+            sb.append("<div><dt>").append(esc(c.t("Other side on the NetScaler"))).append("</dt><dd><a href=\"").append(c.path()).append("/a/").append(id).append("/conn/").append(conn.get("ns_peer")).append("\">")
+              .append(esc(c.t("Connection {n}", "n", conn.get("ns_peer")))).append("</a></dd></div>");
+        if (conn.get("ns_rtt_ms") != null) facts(sb, c.t("Round trip by the NetScaler"), conn.get("ns_rtt_ms") + " ms");
         if (conn.get("proxy_version") != null) {
             facts(sb, c.t("PROXY protocol"), conn.get("proxy_version"));
             facts(sb, c.t("Client before the proxy"), conn.get("proxy_client") == null ? "–" : conn.get("proxy_client"));

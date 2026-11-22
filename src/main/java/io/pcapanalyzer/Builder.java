@@ -61,6 +61,7 @@ public final class Builder {
         boolean closed;
         double lastT;
         boolean offload;
+        Long nsPcb, nsLinkedPcb; Integer nsRtt;
         /** HTTP/2 flow control: what each side may still send, on the connection and on each stream, as the peer allowed it. */
         Map<String, Long> h2ConnWindow = new HashMap<>();
         Map<String, Long> h2InitialWindow = new HashMap<>(); // set by the peer's SETTINGS for the streams it receives
@@ -147,6 +148,11 @@ public final class Builder {
         Stream s = streams.computeIfAbsent(sid, k -> { Stream n = new Stream(); n.sid = sid; n.a = src; n.b = dst; return n; });
         int flags = Optional.ofNullable(toLong(p.get("tcp.flags"))).orElse(0L).intValue();
         long payload = Optional.ofNullable(toLong(p.get("tcp.len"))).orElse(0L);
+        // A NetScaler trace names the connection's PCB and the PCB of the other side of the proxy
+        if (s.nsPcb == null) { Long pcb = toLong(first(p, "nstrace.pdevno")); if (pcb != null && pcb != 0) s.nsPcb = pcb; }
+        if (s.nsLinkedPcb == null) { Long l = toLong(first(p, "nstrace.l_pdevno")); if (l != null && l != 0) s.nsLinkedPcb = l; }
+        Long nsRtt = toLong(Optional.ofNullable(first(p, "nstrace.tcpdbg.rtrtt")).orElse(first(p, "nstrace.rtt")));
+        if (nsRtt != null && nsRtt > 0) s.nsRtt = nsRtt.intValue();
         if (isCopy(p, s, t, src, flags, payload)) { copies++; s.noRtt.add(frame); return; }
         Pkt pk = new Pkt();
         pk.frame = frame; pk.t = t; pk.size = (int) size; pk.src = src; pk.payload = payload; pk.flags = flags;
@@ -644,6 +650,7 @@ public final class Builder {
         conn.put("tls_client_name", s.tlsClientName);
         conn.put("tls_seen", s.tlsSeen);
         conn.put("offload", s.offload);
+        conn.put("ns_pcb", s.nsPcb); conn.put("ns_linked_pcb", s.nsLinkedPcb); conn.put("ns_rtt_ms", s.nsRtt);
         conn.put("first_frame", firstP.frame);
         conn.put("start_time", firstP.t); conn.put("end_time", lastP.t); conn.put("duration", lastP.t - firstP.t);
         conn.put("packets", s.packets.size()); conn.put("bytes", (long) bytesSum);

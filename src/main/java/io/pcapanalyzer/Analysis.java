@@ -43,6 +43,19 @@ public final class Analysis {
         return st == null || st >= 500;
     }
 
+    /** In a NetScaler trace each connection names its own PCB and the linked PCB of the other leg: client to VIP, and SNIP to server.
+     *  Sets ns_peer to the stream of the other leg. Either side naming the other is enough. */
+    static void linkNetScalerLegs(List<Map<String, Object>> conns) {
+        Map<Object, Map<String, Object>> byPcb = new HashMap<>();
+        for (Map<String, Object> c : conns) if (c.get("ns_pcb") != null) byPcb.putIfAbsent(c.get("ns_pcb"), c);
+        for (Map<String, Object> c : conns) {
+            Map<String, Object> peer = c.get("ns_linked_pcb") == null ? null : byPcb.get(c.get("ns_linked_pcb"));
+            if (peer == null || peer == c) continue;
+            c.putIfAbsent("ns_peer", peer.get("stream"));
+            peer.putIfAbsent("ns_peer", c.get("stream"));
+        }
+    }
+
     public static Map<String, Object> run(TShark tshark, Path capture, String filter, long timeoutSeconds) throws TShark.TsharkException {
         return run(tshark, capture, null, filter, timeoutSeconds);
     }
@@ -62,6 +75,7 @@ public final class Analysis {
             connOf.put((Integer) f.conn().get("stream"), f.conn());
             txns.addAll(f.txns());
         }
+        linkNetScalerLegs(conns);
         txns.sort(Comparator.comparing((Map<String, Object> x) -> streamOf(x)).thenComparingDouble(x -> d(x.get("req_start"))));
         int nextId = 1;
         Map<String, Object> details = new LinkedHashMap<>();
