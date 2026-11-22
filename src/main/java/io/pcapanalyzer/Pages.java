@@ -892,6 +892,7 @@ public final class Pages {
         sb.append("</div><p class=\"hint\">").append(esc(c.t("Filters left empty on B use the values of A. Fill B when addresses differ, for example before and after NAT."))).append("</p>")
           .append("<label class=\"check\"><input type=\"radio\" name=\"mode\" value=\"captures\"").append(!mode.equals("points") ? " checked" : "").append("> ").append(esc(c.t("Before and after: compare the two as a whole"))).append("</label>")
           .append("<label class=\"check\"><input type=\"radio\" name=\"mode\" value=\"points\"").append(mode.equals("points") ? " checked" : "").append("> ").append(esc(c.t("Same traffic at two points: match each request. A is nearer the client"))).append("</label>")
+          .append("<label>").append(esc(c.t("Clock of B minus clock of A, ms"))).append(" <input name=\"offset_ms\" inputmode=\"decimal\" size=\"8\" value=\"").append(esc(Optional.ofNullable(Inspect.str(q, "offset_ms")).orElse(""))).append("\" placeholder=\"").append(esc(c.t("estimated"))).append("\"></label>")
           .append("<button class=\"primary\">").append(esc(c.t("Compare"))).append("</button></form></section>");
         if (result != null) {
             for (String n : (List<String>) result.get("notes")) sb.append("<p class=\"warn\">").append(esc(n)).append("</p>");
@@ -943,6 +944,10 @@ public final class Pages {
             }
             sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("Same requests at two points"))).append("</h2><p class=\"hint\">")
               .append(esc(c.t("The split into two directions is an estimate. It takes the fastest trip each way as equal to remove the clock difference of {ms} ms.", "ms", String.format(Locale.ROOT, "%.1f", Analysis.d(points.get("clock_skew")) * 1000)))).append("</p>");
+            if (Boolean.TRUE.equals(points.get("clock_given"))) sb.append("<p class=\"hint\">").append(esc(c.t("The clock difference you gave is used instead of the estimate."))).append("</p>");
+            else if (Math.abs(Analysis.d(points.get("clock_drift_ppm"))) >= 20)
+                sb.append("<p class=\"warn\">").append(esc(c.t("The clocks also drift apart by {ppm} ppm, {ms} ms a minute. The split takes this into account; sync both capture hosts with NTP for exact numbers.",
+                    "ppm", String.format(Locale.ROOT, "%.0f", Analysis.d(points.get("clock_drift_ppm"))), "ms", String.format(Locale.ROOT, "%.1f", Analysis.d(points.get("clock_drift_ppm")) * 60 / 1000)))).append("</p>");
             List<Map<String, Object>> rows = (List<Map<String, Object>>) points.get("rows");
             if (!rows.isEmpty()) {
                 sb.append("<div class=\"table-wrap\"><table><thead><tr><th>").append(esc(c.t("Match"))).append("</th><th>").append(esc(c.t("Request"))).append("</th>");

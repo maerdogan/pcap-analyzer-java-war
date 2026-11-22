@@ -273,7 +273,12 @@ public class AppServlet extends HttpServlet {
             ma = read(dir(ia).resolve("meta.json")); mb = read(dir(ib).resolve("meta.json"));
             Map<String, Object> ra = read(dir(ia).resolve("result.json")), rb = read(dir(ib).resolve("result.json"));
             if (ma != null && mb != null && ra != null && rb != null) {
-                if ("points".equals(Inspect.str(q, "mode"))) points = Compare.twoPoint(ra, rb);
+                if ("points".equals(Inspect.str(q, "mode"))) {
+                    Double offset = null;
+                    String raw = Optional.ofNullable(Inspect.str(q, "offset_ms")).orElse("").strip().replace(',', '.');
+                    if (!raw.isEmpty()) try { offset = Double.parseDouble(raw) / 1000; } catch (NumberFormatException ignored) { }
+                    points = Compare.twoPoint(ra, rb, offset);
+                }
                 else result = Compare.captures(c, ra, rb, side(q, "_a", null), side(q, "_b", side(q, "_a", null)));
             }
         }
