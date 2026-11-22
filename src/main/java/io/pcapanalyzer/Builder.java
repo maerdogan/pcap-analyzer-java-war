@@ -41,7 +41,10 @@ public final class Builder {
         Map<Integer, H2> h2 = new LinkedHashMap<>();
         boolean tlsSeen, tlsHello, tlsServerHello, tlsCertificate;
         Pkt tlsStart, tlsEnd, tlsCcs;
-        String sni, tlsVersion, tlsCipher, tlsAlpn, tlsAlert, tlsCertExpires;
+        String sni, tlsVersion, tlsCipher, tlsAlpn, tlsAlert, tlsCertExpires, tlsClientName;
+        boolean tlsCertRequested;
+        int tlsServerChain;
+        Integer tlsClientCerts;
         List<Integer> mss = new ArrayList<>();
         Integer wscale;
         boolean sack;
@@ -434,8 +437,21 @@ public final class Builder {
         if (hs.contains(11L)) s.tlsCertificate = true;
         Long alert = toLong(first(p, "tls.alert_message.desc"));
         if (alert != null && alert != 0 && s.tlsAlert == null) s.tlsAlert = ALERTS.getOrDefault(alert.intValue(), String.valueOf(alert));
-        String[] times = many(p, "x509af.utcTime");
-        if (times.length >= 2 && s.tlsCertExpires == null) s.tlsCertExpires = times[1];
+        boolean fromClient = src.equals(s.client);
+        if (hs.contains(13L) && !fromClient) s.tlsCertRequested = true;
+        if (hs.contains(11L)) {
+            int certs = many(p, "tls.handshake.certificate_length").length;
+            String name = first(p, "x509ce.dNSName");
+            if (fromClient) {
+                s.tlsClientCerts = certs; s.tlsClientName = name;
+                if (s.tlsCertRequested && certs == 0) issue(p, pk.t, "tls_no_client_cert", s.sni != null ? s.sni : "stream " + s.sid);
+            } else if (s.tlsServerChain == 0) {
+                s.tlsServerChain = certs;
+                // notBefore and notAfter of each certificate in turn: the chain expires with its first certificate to expire
+                String[] times = many(p, "x509af.utcTime");
+                for (int i = 1; i < times.length; i += 2) if (s.tlsCertExpires == null || times[i].compareTo(s.tlsCertExpires) < 0) s.tlsCertExpires = times[i];
+            }
+        }
     }
 
     private void http1(Map<String, String> p, Stream s, Pkt pk, String src, String dst) {
@@ -582,6 +598,10 @@ public final class Builder {
         conn.put("tls_no_answer", s.tlsHello && !s.tlsServerHello);
         conn.put("tls_resumed", s.tlsServerHello && !s.tlsCertificate && !"TLS 1.3".equals(s.tlsVersion));
         conn.put("tls_cert_expires", s.tlsCertExpires);
+        conn.put("tls_chain", s.tlsServerChain == 0 ? null : s.tlsServerChain);
+        conn.put("tls_client_cert_requested", s.tlsCertRequested);
+        conn.put("tls_client_certs", s.tlsClientCerts);
+        conn.put("tls_client_name", s.tlsClientName);
         conn.put("tls_seen", s.tlsSeen);
         conn.put("offload", s.offload);
         conn.put("first_frame", firstP.frame);

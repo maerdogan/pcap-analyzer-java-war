@@ -705,11 +705,17 @@ public final class Pages {
                   .append("</td><td>").append(esc(p.get("sni") == null ? "–" : p.get("sni"))).append("</td><td>").append(esc(Boolean.TRUE.equals(p.get("tls_no_answer")) ? c.t("No answer to ClientHello") : p.get("tls_alert"))).append("</td></tr>");
             sb.append("</tbody></table></div></section>");
         }
+        long asked = ((Number) tls.getOrDefault("client_cert_requested", 0L)).longValue();
+        if (asked > 0) {
+            long sent = ((Number) tls.getOrDefault("client_cert_sent", 0L)).longValue();
+            sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Client certificates (mTLS)"))).append("</h2><p>").append(esc(c.t("Asked for")))
+              .append(": ").append(asked).append(" · ").append(esc(c.t("Sent"))).append(": ").append(sent).append(" · ").append(esc(c.t("Not sent"))).append(": ").append(asked - sent).append("</p></section>");
+        }
         List<Map<String, Object>> certs = (List<Map<String, Object>>) tls.get("certificates");
         if (!certs.isEmpty()) {
             sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("Certificates seen"))).append("</h2><div class=\"table-wrap\"><table><thead><tr><th>").append(esc(c.t("Server name"))).append("</th><th>")
-              .append(esc(c.t("Expires"))).append("</th><th class=\"num\">").append(esc(c.t("Connections"))).append("</th></tr></thead><tbody>");
-            for (Map<String, Object> k : certs) sb.append("<tr><td>").append(esc(k.get("name"))).append("</td><td>").append(esc(k.get("expires"))).append("</td><td class=\"num\">").append(k.get("connections")).append("</td></tr>");
+              .append(esc(c.t("Expires"))).append("</th><th class=\"num\">").append(esc(c.t("Chain"))).append("</th><th class=\"num\">").append(esc(c.t("Connections"))).append("</th></tr></thead><tbody>");
+            for (Map<String, Object> k : certs) sb.append("<tr><td>").append(esc(k.get("name"))).append("</td><td>").append(esc(k.get("expires"))).append("</td><td class=\"num\">").append(k.get("chain") == null ? "–" : k.get("chain")).append("</td><td class=\"num\">").append(k.get("connections")).append("</td></tr>");
             sb.append("</tbody></table></div><p class=\"hint\">").append(esc(c.t("TLS 1.3 encrypts the certificate, so it is visible only with a key log."))).append("</p></section>");
         }
         return sb.toString();

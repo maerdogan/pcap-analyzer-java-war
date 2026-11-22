@@ -545,7 +545,7 @@ public final class Analysis {
         if (drops > 0) found.add(issue("capture_drops", 1, drops, false));
         String[][] packetRules = {{"malformed", "2", "malformed"}, {"icmp_unreachable", "2", "icmp_unreachable"}, {"dns_errors", "2", "dns_error"}, {"tcp_flags_invalid", "2", "tcp_flags_invalid"},
                 {"port_reused", "2", "port_reused"}, {"ecn_congestion", "3", "ecn_congestion"}, {"sack_blocks", "3", "sack_blocks"},
-                {"h2_flow_stall", "2", "h2_flow_stall"}, {"h2_reset", "2", "h2_reset"}, {"h2_goaway", "2", "h2_goaway"}};
+                {"h2_flow_stall", "2", "h2_flow_stall"}, {"h2_reset", "2", "h2_reset"}, {"h2_goaway", "2", "h2_goaway"}, {"tls_no_client_cert", "2", "tls_no_client_cert"}};
         for (String[] pr : packetRules) {
             List<Object[]> hit = new ArrayList<>();
             for (Object[] pi : b.packetIssues) if (pr[2].equals(pi[2])) hit.add(pi);
@@ -591,6 +591,7 @@ public final class Analysis {
         Map<Key, double[]> groups = new LinkedHashMap<>(); // count, resumed, handshake sum, handshake n
         List<Map<String, Object>> problems = new ArrayList<>();
         Map<String, Map<String, Object>> certs = new TreeMap<>();
+        long[] mtls = new long[2];
         for (Map<String, Object> c : conns) {
             boolean seen = c.get("tls_version") != null || Boolean.TRUE.equals(c.get("tls_no_answer")) || c.get("tls_alert") != null;
             if (!seen) continue;
@@ -604,10 +605,14 @@ public final class Analysis {
                 for (String f : new String[] {"stream", "client", "server", "sni", "tls_alert", "tls_no_answer"}) p.put(f, c.get(f));
                 problems.add(p);
             }
+            if (Boolean.TRUE.equals(c.get("tls_client_cert_requested"))) {
+                mtls[0]++;
+                if (c.get("tls_client_certs") != null && ((Number) c.get("tls_client_certs")).intValue() > 0) mtls[1]++;
+            }
             if (c.get("tls_cert_expires") != null) {
                 String name = c.get("sni") != null ? (String) c.get("sni") : (String) c.get("server_ip");
                 Map<String, Object> m = certs.computeIfAbsent(c.get("tls_cert_expires") + "\u0000" + name, x -> {
-                    Map<String, Object> n = new LinkedHashMap<>(); n.put("name", name); n.put("expires", c.get("tls_cert_expires")); n.put("connections", 0); return n; });
+                    Map<String, Object> n = new LinkedHashMap<>(); n.put("name", name); n.put("expires", c.get("tls_cert_expires")); n.put("chain", c.get("tls_chain")); n.put("connections", 0); return n; });
                 m.put("connections", (Integer) m.get("connections") + 1);
             }
         }
@@ -620,7 +625,7 @@ public final class Analysis {
         });
         versions.sort((a, z) -> Long.compare((Long) z.get("connections"), (Long) a.get("connections")));
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("versions", versions); out.put("problems", problems); out.put("certificates", new ArrayList<>(certs.values()));
+        out.put("versions", versions); out.put("problems", problems); out.put("certificates", new ArrayList<>(certs.values())); out.put("client_cert_requested", mtls[0]); out.put("client_cert_sent", mtls[1]);
         return out;
     }
 

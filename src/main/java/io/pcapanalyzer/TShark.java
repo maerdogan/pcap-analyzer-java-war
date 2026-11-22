@@ -23,7 +23,7 @@ public final class TShark {
             "http.request.method", "http.request.uri", "http.request.version", "http.host", "http.response.code",
             "http.response.phrase", "http.response.version", "http.content_length", "http.content_type",
             "tcp.segment", "http.request.line", "http.response.line", "http.file_data", "http.x_forwarded_for", "http.content_encoding", "http.transfer_encoding", "tls.record.content_type", "tls.record.opaque_type", "tls.handshake.type", "tls.handshake.extensions_server_name",
-            "tls.handshake.extensions.supported_version", "tls.handshake.ciphersuite", "tls.handshake.extensions_alpn_str", "tls.alert_message.desc", "x509af.utcTime",
+            "tls.handshake.extensions.supported_version", "tls.handshake.ciphersuite", "tls.handshake.extensions_alpn_str", "tls.alert_message.desc", "x509af.utcTime", "tls.handshake.certificate_length", "x509ce.dNSName",
             "http2.type", "http2.streamid", "http2.flags", "http2.length", "http2.header.count", "http2.header.name", "http2.header.value",
             "http2.rst_stream.error", "http2.goaway.error", "http2.window_update.window_size_increment", "http2.settings.id", "http2.settings.initial_window_size"));
     static {
