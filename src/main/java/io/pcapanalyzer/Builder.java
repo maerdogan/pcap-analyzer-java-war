@@ -68,6 +68,7 @@ public final class Builder {
         Map<String, Long> h2StreamWindow = new HashMap<>();  // key: sender + "/" + stream id
         Map<String, Double> h2Blocked = new HashMap<>();     // key: sender + "/" + stream id, or sender + "/0": when its window ran out
         double h2Stall;
+        List<double[]> h2StallSpans = new ArrayList<>();   // start and end of each flow control wait
     }
 
     public final Map<Integer, Stream> streams = new TreeMap<>();
@@ -383,6 +384,7 @@ public final class Builder {
                 Double since = s.h2Blocked.remove(key);
                 if (since != null && pk.t - since >= H2_STALL_MIN_S) {
                     s.h2Stall += pk.t - since;
+                    s.h2StallSpans.add(new double[] {since, pk.t});
                     issue(p, pk.t, "h2_flow_stall", (id == 0 ? "connection" : "stream " + id) + ": " + Math.round((pk.t - since) * 1000) + " ms");
                 }
             } else if (ty.equals("0") && id != 0) {
@@ -821,8 +823,13 @@ public final class Builder {
             Double service = null;
             if (wait != null) { double svc = wait - network - queue; service = svc >= 0 ? svc : null; }
             if (queue != 0 && service == null) service = 0.0;
-            double moved = st[1] + st[2] + delayedResp;
+            double flow = 0;
+            if (t.get("resp_start") != null && t.get("resp_end") != null)
+                for (double[] w : s.h2StallSpans) flow += Math.max(0, Math.min(w[1], or0(t.get("resp_end"))) - Math.max(w[0], or0(t.get("resp_start"))));
             double transfer = or0(t.get("transfer"));
+            flow = Math.min(flow, Math.max(transfer - st[1] - st[2] - delayedResp, 0));
+            double moved = st[1] + st[2] + delayedResp + flow;
+            t.put("h2_flow_time", flow);
             t.put("retrans_count", (long) st[0]); t.put("retrans_time", st[1]); t.put("zero_window_time", st[2]); t.put("delayed_ack_time", delayedReq + delayedResp);
             t.put("queue_time", queue); t.put("network", network); t.put("service", service);
             t.put("transfer_clean", Math.max(transfer - moved, 0.0));

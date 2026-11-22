@@ -7,7 +7,7 @@ import java.util.stream.Collectors;
 public final class Compare {
     static final int MIN_SAMPLE = 5;
     static final double MATCH_WINDOW_S = 5.0, NEGLIGIBLE_S = 0.001;
-    static final String[] PHASE_AVG = {"network", "queue_time", "service", "transfer_clean", "retrans_time", "zero_window_time", "delayed_ack_time"};
+    static final String[] PHASE_AVG = {"network", "queue_time", "service", "transfer_clean", "retrans_time", "zero_window_time", "h2_flow_time", "delayed_ack_time"};
 
     private Compare() {}
 

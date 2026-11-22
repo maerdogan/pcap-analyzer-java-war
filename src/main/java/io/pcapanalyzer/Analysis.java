@@ -16,10 +16,10 @@ public final class Analysis {
     static final int CHART_POINTS = 150;
     static final double LOST_SHARE_HIGH = 0.01, MOST = 0.5;
     static final String[] PHASES = {"connect_time", "tls_time", "request_clean", "network", "queue_time", "service", "transfer_clean",
-            "retrans_time", "zero_window_time", "delayed_ack_time"};
-    static final Map<String, String> CAUSE_OF_PHASE = Map.of("connect_time", "connect", "tls_time", "tls", "request_clean", "upload",
-            "network", "network", "queue_time", "queueing", "service", "service", "transfer_clean", "transfer",
-            "retrans_time", "loss", "zero_window_time", "slow_client", "delayed_ack_time", "delayed_ack");
+            "retrans_time", "zero_window_time", "h2_flow_time", "delayed_ack_time"};
+    static final Map<String, String> CAUSE_OF_PHASE = Map.ofEntries(Map.entry("connect_time", "connect"), Map.entry("tls_time", "tls"), Map.entry("request_clean", "upload"),
+            Map.entry("network", "network"), Map.entry("queue_time", "queueing"), Map.entry("service", "service"), Map.entry("transfer_clean", "transfer"),
+            Map.entry("retrans_time", "loss"), Map.entry("zero_window_time", "slow_client"), Map.entry("h2_flow_time", "h2_flow_stall"), Map.entry("delayed_ack_time", "delayed_ack"));
 
     private Analysis() {}
 

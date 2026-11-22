@@ -49,6 +49,16 @@ class Http2ControlTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void flowControlWaitIsItsOwnPhase() {
+        Map<String, Object> big = ((List<Map<String, Object>>) result.get("transactions")).stream().filter(t -> "/big".equals(t.get("uri"))).findFirst().orElseThrow();
+        Object phases = big.get("phases");
+        double flow = Analysis.d(phases instanceof Map<?, ?> m ? m.get("h2_flow_time") : big.get("h2_flow_time"));
+        assertTrue(flow >= 0.195 && flow <= 0.215, "flow control wait was " + flow + " in " + big);
+        assertEquals("h2_flow_stall", big.get("cause"));
+    }
+
+    @Test
     void refusedStreamIsReported() {
         assertEquals(1, counts().get("h2_reset").intValue());
         assertEquals(List.of("stream 3: REFUSED_STREAM"), details("h2_reset"));
