@@ -53,6 +53,14 @@ class ProxyProtocolTest {
     }
 
     @Test
+    void gatewayTimeIsServiceMinusEnvoyUpstreamTime() {
+        Map<String, Object> t = rows("transactions").get(2);
+        assertEquals(0.005, Analysis.d(t.get("upstream_time")), 1e-9);
+        double gw = Analysis.d(t.get("gateway_time"));
+        org.junit.jupiter.api.Assertions.assertTrue(gw > 0.01 && gw < 0.016, "gateway time " + gw);
+    }
+
+    @Test
     void clientAddressReadsListsAndForwarded() {
         assertEquals("198.51.100.5", Builder.clientAddress("x-forwarded-for", "198.51.100.5, 10.0.0.1"));
         assertEquals("[2001:db8::1]:4711", Builder.clientAddress("forwarded", "for=\"[2001:db8::1]:4711\";proto=https, for=10.0.0.1"));

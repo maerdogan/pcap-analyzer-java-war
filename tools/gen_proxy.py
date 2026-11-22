@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Write src/test/resources/proxy.pcap: a NetScaler to gateway connection that starts with a PROXY protocol v2 header
 for client 203.0.113.7:40000, then one HTTP/1.1 request. A second connection uses PROXY v1 for an IPv6 client.
-A third has no PROXY header; its request names the client in X-Forwarded-For.
+A third has no PROXY header; its request names the client in X-Forwarded-For,
+and the Envoy gateway says its upstream took 5 ms of the 20.
 Uses the frame helpers of pcap-analyzer-py's tools/gen_samples.py. Usage: gen_proxy.py PATH_TO_pcap-analyzer-py OUT.pcap"""
 import socket
 import struct
@@ -25,7 +26,7 @@ for port, header in ((52000, v2), (52001, v1)):
 c = g.Conn(w, "10.1.0.10", 52002, "10.2.0.20", 8080)
 t = c.handshake(t)
 t = c.send(t, True, g.req("GET", "/api/orders", extra=["X-Forwarded-For: 198.51.100.5, 10.0.0.1"])) + 0.02
-t = c.send(t, False, b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok") + 0.01
+t = c.send(t, False, b"HTTP/1.1 200 OK\r\nx-envoy-upstream-service-time: 5\r\nContent-Length: 2\r\n\r\nok") + 0.01
 c.close(t)
 w.close()
 print(sys.argv[2])

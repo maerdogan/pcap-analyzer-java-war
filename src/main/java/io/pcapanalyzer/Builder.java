@@ -26,7 +26,7 @@ public final class Builder {
     }
 
     static final class Resp {
-        int frame, startFrame, status, headLen; String phrase, contentType, headers, body, encoding, transfer, serverTiming, version; Long contentLength; boolean websocket;
+        int frame, startFrame, status, headLen; String phrase, contentType, headers, body, encoding, transfer, serverTiming, version; Long contentLength; Double upstreamTime; boolean websocket;
     }
 
     static final class Stream {
@@ -557,6 +557,7 @@ public final class Builder {
                     java.util.regex.Matcher mm = java.util.regex.Pattern.compile("([0-9.]+)\\s*(ms|s)?").matcher(rt.strip());
                     return mm.matches() ? "app;dur=" + Double.parseDouble(mm.group(1)) * ("s".equals(mm.group(2)) ? 1000 : 1) : null;
                 });
+                r.upstreamTime = envoyUpstream(header(rlines, "x-envoy-upstream-service-time", 0));
                 String[] rb = many(p, "http.file_data");
                 r.body = rb.length > 0 ? Privacy.preview(rb[0]) : null;
                 s.responses.add(r);
@@ -742,6 +743,7 @@ public final class Builder {
                 r.frame = r.startFrame = rFirst.frame;
                 Long code = toLong(st.resp.get(":status"));
                 r.status = code == null ? 0 : code.intValue();
+                r.upstreamTime = envoyUpstream(st.resp.get("x-envoy-upstream-service-time"));
                 r.contentType = st.resp.get("content-type");
             }
             q.headers = h2Headers(st.req);
@@ -795,6 +797,12 @@ public final class Builder {
         return total;
     }
 
+    /** x-envoy-upstream-service-time: the milliseconds an Envoy based gateway waited for its upstream, in seconds. */
+    static Double envoyUpstream(String v) {
+        if (v == null) return null;
+        try { double ms = Double.parseDouble(v.strip()); return ms >= 0 ? ms / 1000 : null; } catch (NumberFormatException e) { return null; }
+    }
+
     static Double serverReported(String st) {
         if (st == null) return null;
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("dur=([0-9.]+)").matcher(st);
@@ -841,6 +849,8 @@ public final class Builder {
             boolean https = s.tlsSeen;
             t.put("truncated", answered && clen != null && clen > 0 && Boolean.TRUE.equals(t.get("body_expected")) && bodyBytes != null && bodyBytes < clen && !https);
             t.put("server_reported", serverReported((String) t.get("server_timing")));
+            // An Envoy gateway says how long its upstream took; the rest of what the capture saw as service is the gateway's own time
+            if (t.get("upstream_time") != null && service != null) t.put("gateway_time", Math.max(service - (Double) t.get("upstream_time"), 0.0));
         }
     }
 
@@ -889,6 +899,7 @@ public final class Builder {
         m.put("resp_content_length", r == null ? null : r.contentLength);
         m.put("body_expected", r != null && !"HEAD".equals(q.method) && !"CONNECT".equals(q.method) && r.status != 204 && r.status != 304);
         m.put("server_timing", r == null ? null : r.serverTiming);
+        m.put("upstream_time", r == null ? null : r.upstreamTime);
         m.put("h2_stream", null);
         m.put("_req_headers", q.headers); m.put("_resp_headers", r == null ? null : r.headers); m.put("_req_body", q.body); m.put("_resp_body", r == null ? null : r.body);
         return m;
