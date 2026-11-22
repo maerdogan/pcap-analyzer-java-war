@@ -23,7 +23,7 @@ public final class TShark {
             "http.request.method", "http.request.uri", "http.request.version", "http.host", "http.response.code",
             "http.response.phrase", "http.response.version", "http.content_length", "http.content_type",
             "tcp.segment", "http.request.line", "http.response.line", "http.file_data", "http.x_forwarded_for", "http.content_encoding", "http.transfer_encoding", "tls.record.content_type", "tls.record.opaque_type", "tls.handshake.type", "tls.handshake.extensions_server_name",
-            "tls.handshake.extensions.supported_version", "tls.handshake.ciphersuite", "tls.handshake.extensions_alpn_str", "tls.alert_message.desc", "x509af.utcTime", "tls.handshake.certificate_length", "x509ce.dNSName",
+            "tls.handshake.extensions.supported_version", "tls.handshake.ciphersuite", "tls.handshake.extensions_alpn_str", "tls.alert_message.desc", "x509af.utcTime", "tls.handshake.certificate_length", "x509ce.dNSName", "proxy.version", "proxy.v1.magic", "proxy.src.ipv4", "proxy.src.ipv6", "proxy.srcport", "proxy.dst.ipv4", "proxy.dst.ipv6", "proxy.dstport",
             "http2.type", "http2.streamid", "http2.flags", "http2.length", "http2.header.count", "http2.header.name", "http2.header.value",
             "http2.rst_stream.error", "http2.goaway.error", "http2.window_update.window_size_increment", "http2.settings.id", "http2.settings.initial_window_size"));
     static {
@@ -245,6 +245,8 @@ public final class TShark {
         List<String> cmd = new ArrayList<>(List.of(binary, "-n", "-r", "-",
                 "-o", "http.desegment_body:FALSE", "-o", "http.desegment_headers:FALSE",
                 "-o", "tcp.desegment_tcp_streams:TRUE", "-o", "tcp.reassemble_out_of_order:TRUE",
+                // A PROXY protocol header comes before HTTP or TLS on the same port, so its heuristic has to run before the port's dissector
+                "-o", "tcp.try_heuristic_first:TRUE",
                 "-T", "fields", "-E", "separator=/t", "-E", "quote=n", "-E", "occurrence=a", "-E", "aggregator=" + AGG));
         if (keylog != null) { cmd.add("-o"); cmd.add("tls.keylog_file:" + keylog); }
         if (rsaKey != null) { cmd.add("-o"); cmd.add("uat:rsa_keys:\"" + rsaKey + "\",\"\""); }

@@ -498,6 +498,11 @@ public final class Pages {
         facts(sb, c.t("Capture point"), c.t(Character.toUpperCase(raw.charAt(0)) + raw.substring(1)));
         facts(sb, "MSS", conn.get("mss") == null ? "–" : conn.get("mss"));
         facts(sb, "SACK", Boolean.TRUE.equals(conn.get("sack")) ? c.t("Yes") : c.t("No"));
+        if (conn.get("proxy_version") != null) {
+            facts(sb, c.t("PROXY protocol"), conn.get("proxy_version"));
+            facts(sb, c.t("Client before the proxy"), conn.get("proxy_client") == null ? "–" : conn.get("proxy_client"));
+            facts(sb, c.t("Address the client asked for"), conn.get("proxy_server") == null ? "–" : conn.get("proxy_server"));
+        }
         facts(sb, c.t("Window scale"), conn.get("wscale") == null ? "–" : conn.get("wscale"));
         facts(sb, c.t("Smallest window"), conn.get("min_window") == null ? "–" : conn.get("min_window"));
         facts(sb, c.t("Retransmissions"), conn.get("retransmissions"));

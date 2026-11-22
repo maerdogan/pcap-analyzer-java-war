@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Write src/test/resources/proxy.pcap: a NetScaler to gateway connection that starts with a PROXY protocol v2 header
+for client 203.0.113.7:40000, then one HTTP/1.1 request. A second connection uses PROXY v1 for an IPv6 client.
+Uses the frame helpers of pcap-analyzer-py's tools/gen_samples.py. Usage: gen_proxy.py PATH_TO_pcap-analyzer-py OUT.pcap"""
+import socket
+import struct
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(sys.argv[1]) / "tools"))
+import gen_samples as g  # noqa: E402
+
+w = g.PcapWriter(Path(sys.argv[2]))
+addrs = socket.inet_aton("203.0.113.7") + socket.inet_aton("198.51.100.10") + struct.pack(">HH", 40000, 443)
+v2 = b"\r\n\r\n\x00\r\nQUIT\n" + bytes([0x21, 0x11]) + struct.pack(">H", len(addrs)) + addrs
+v1 = b"PROXY TCP6 2001:db8::7 2001:db8::10 40001 443\r\n"
+t = g.T0
+for port, header in ((52000, v2), (52001, v1)):
+    c = g.Conn(w, "10.1.0.10", port, "10.2.0.20", 8080)
+    t = c.handshake(t)
+    t = c.send(t, True, header + g.req("GET", "/api/orders")) + 0.02
+    t = c.send(t, False, b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok") + 0.01
+    t = c.close(t) + 0.05
+w.close()
+print(sys.argv[2])

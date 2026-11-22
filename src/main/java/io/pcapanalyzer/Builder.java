@@ -43,6 +43,7 @@ public final class Builder {
         Pkt tlsStart, tlsEnd, tlsCcs;
         String sni, tlsVersion, tlsCipher, tlsAlpn, tlsAlert, tlsCertExpires, tlsClientName;
         boolean tlsCertRequested;
+        String proxyVersion, proxyClient, proxyServer;
         int tlsServerChain;
         Integer tlsClientCerts;
         List<Integer> mss = new ArrayList<>();
@@ -184,6 +185,7 @@ public final class Builder {
         if (p.containsKey("tcp.analysis.zero_window")) { s.zeroWindows++; s.zeroList.add(pk); }
         Double rtt = toDouble(p.get("tcp.analysis.ack_rtt"));
         if (rtt != null && !pk.retrans && !s.noRtt.contains(Optional.ofNullable(toLong(p.get("tcp.analysis.acks_frame"))).map(Long::intValue).orElse(-1))) s.rttSamples.add(new Object[] {src, rtt});
+        proxy(p, s);
         tls(p, s, pk, src);
         http1(p, s, pk, src, dst);
         http2(p, s, pk, src, dst);
@@ -412,6 +414,18 @@ public final class Builder {
             Map.entry(70, "protocol_version"), Map.entry(71, "insufficient_security"), Map.entry(80, "internal_error"), Map.entry(90, "user_canceled"),
             Map.entry(109, "missing_extension"), Map.entry(112, "unrecognized_name"), Map.entry(116, "certificate_required"), Map.entry(120, "no_application_protocol"));
 
+    /** A PROXY protocol header, as a NetScaler or a load balancer puts in front of the data, names the client the proxy took the connection from. */
+    private void proxy(Map<String, String> p, Stream s) {
+        String version = first(p, "proxy.version");
+        if (version == null && p.containsKey("proxy.v1.magic")) version = "1";
+        if (version == null || s.proxyVersion != null) return;
+        s.proxyVersion = "v" + version;
+        String src = Optional.ofNullable(first(p, "proxy.src.ipv4")).orElse(first(p, "proxy.src.ipv6")), dst = Optional.ofNullable(first(p, "proxy.dst.ipv4")).orElse(first(p, "proxy.dst.ipv6"));
+        String sport = first(p, "proxy.srcport"), dport = first(p, "proxy.dstport");
+        if (src != null) s.proxyClient = (src.contains(":") ? "[" + src + "]" : src) + (sport == null ? "" : ":" + sport);
+        if (dst != null) s.proxyServer = (dst.contains(":") ? "[" + dst + "]" : dst) + (dport == null ? "" : ":" + dport);
+    }
+
     private void tls(Map<String, String> p, Stream s, Pkt pk, String src) {
         String[] ctypes = many(p, "tls.record.content_type"), opaque = many(p, "tls.record.opaque_type");
         if (ctypes.length == 0 && opaque.length == 0) return;
@@ -598,6 +612,7 @@ public final class Builder {
         conn.put("tls_no_answer", s.tlsHello && !s.tlsServerHello);
         conn.put("tls_resumed", s.tlsServerHello && !s.tlsCertificate && !"TLS 1.3".equals(s.tlsVersion));
         conn.put("tls_cert_expires", s.tlsCertExpires);
+        conn.put("proxy_version", s.proxyVersion); conn.put("proxy_client", s.proxyClient); conn.put("proxy_server", s.proxyServer);
         conn.put("tls_chain", s.tlsServerChain == 0 ? null : s.tlsServerChain);
         conn.put("tls_client_cert_requested", s.tlsCertRequested);
         conn.put("tls_client_certs", s.tlsClientCerts);
@@ -823,6 +838,7 @@ public final class Builder {
         m.put("rtt", rttSrv);
         m.put("request_id", q.requestId);
         m.put("x_forwarded_for", q.xff);
+        m.put("proxy_client", s.proxyClient);
         m.put("content_encoding", r == null ? null : r.encoding); m.put("transfer_encoding", r == null ? null : r.transfer);
         m.put("last_frame", rLast == null ? null : rLast.frame);
         m.put("head_len", r == null || r.headLen == 0 ? null : r.headLen);
