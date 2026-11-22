@@ -547,6 +547,8 @@ public final class Pages {
           .append(breakdown(c, budget)).append("</section><section class=\"panel\"><h2>").append(esc(c.t("Request"))).append("</h2><dl class=\"facts\">");
         facts(sb, c.t("Host"), t.get("host") == null ? "–" : t.get("host"));
         facts(sb, c.t("Client"), t.get("client"));
+        if (Boolean.TRUE.equals(t.get("health_check"))) facts(sb, c.t("Health check"), c.t("Yes"));
+        if (t.get("retry_of") != null) facts(sb, c.t("Retry"), c.t("Attempt {n}, after request {id}", "n", t.get("attempt"), "id", t.get("retry_of")));
         if (t.get("upstream_time") != null) {
             facts(sb, c.t("Upstream time reported by the gateway"), Fmt.seconds(Analysis.dn(t.get("upstream_time"))));
             if (t.get("gateway_time") != null) facts(sb, c.t("Time in the gateway itself"), Fmt.seconds(Analysis.dn(t.get("gateway_time"))));

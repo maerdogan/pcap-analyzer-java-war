@@ -40,6 +40,7 @@ Sign in with HTTP Basic as `admin`. Open `/pcap-analyzer/`.
 | `PCAP_ANALYZER_GEOIP_DIR` | Folder with MaxMind GeoLite2 Country and ASN files. |
 | `PCAP_ANALYZER_REQUEST_ID_HEADER` | Header that follows a request through proxies. Default `x-request-id`. |
 | `PCAP_ANALYZER_CLIENT_IP_HEADER` | Headers that carry the original client, comma separated, tried in order. Default `x-forwarded-for,x-real-ip,true-client-ip,x-client-ip,client-ip,forwarded`. A NetScaler adds its own with *Client IP header* on the service. |
+| `PCAP_ANALYZER_HEALTH_PATHS` | More health check paths, comma separated, besides `/healthz`, `/ready`, `/actuator/health` and the like. Requests to them are marked as health checks. |
 
 ## REST API
 

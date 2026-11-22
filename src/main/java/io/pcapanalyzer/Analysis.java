@@ -43,6 +43,27 @@ public final class Analysis {
         return st == null || st >= 500;
     }
 
+    /** A request whose request ID was seen before on an attempt that failed and ended before it began: a retry by the gateway or the client.
+     *  Two legs of one proxy carry the same ID too, but they overlap in time, so they are not counted. */
+    static void markRetries(List<Map<String, Object>> txns) {
+        Map<Object, List<Map<String, Object>>> byId = new HashMap<>();
+        for (Map<String, Object> t : txns) if (t.get("request_id") != null) byId.computeIfAbsent(t.get("request_id"), k -> new ArrayList<>()).add(t);
+        for (List<Map<String, Object>> g : byId.values()) {
+            if (g.size() < 2) continue;
+            g.sort(Comparator.comparingDouble(t -> d(t.get("req_start"))));
+            int attempt = 1;
+            Map<String, Object> first = g.get(0), prev = first;
+            for (Map<String, Object> t : g.subList(1, g.size())) {
+                Integer status = statusOf(prev);
+                boolean failed = status == null || status == 0 || status >= 500;
+                double prevEnd = prev.get("resp_end") != null ? d(prev.get("resp_end")) : d(prev.get("req_end"));
+                if (!failed || prevEnd > d(t.get("req_start"))) continue;
+                t.put("attempt", ++attempt); t.put("retry_of", prev.get("id"));
+                prev = t;
+            }
+        }
+    }
+
     /** In a NetScaler trace each connection names its own PCB and the linked PCB of the other leg: client to VIP, and SNIP to server.
      *  Sets ns_peer to the stream of the other leg. Either side naming the other is enough. */
     static void linkNetScalerLegs(List<Map<String, Object>> conns) {
@@ -92,6 +113,7 @@ public final class Analysis {
             phases(x, cn);
         }
 
+        markRetries(txns);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("version", RESULT_VERSION);
         result.put("_details", details);
@@ -188,6 +210,8 @@ public final class Analysis {
         s.put("packets", b.total); s.put("tcp_packets", b.tcp); s.put("bytes", b.bytes);
         s.put("start", b.tFirst); s.put("end", b.tLast);
         s.put("connections", conns.size()); s.put("requests", txns.size());
+        s.put("health_checks", txns.stream().filter(t -> Boolean.TRUE.equals(t.get("health_check"))).count());
+        s.put("retries", txns.stream().filter(t -> t.get("retry_of") != null).count());
         return s;
     }
 
@@ -527,6 +551,7 @@ public final class Analysis {
                 new Rule("truncated", 1, true, x -> Boolean.TRUE.equals(x.get("truncated"))),
                 new Rule("loss", 2, true, x -> "loss".equals(x.get("cause"))),
                 new Rule("slow_client", 2, true, x -> d(x.get("zero_window_time")) > 0),
+                new Rule("retried", 2, true, x -> x.get("retry_of") != null),
                 new Rule("delayed_ack", 3, true, x -> d(x.get("delayed_ack_time")) > 0),
                 new Rule("queueing", 3, true, x -> d(x.get("queue_time")) > 0),
                 new Rule("small_mss", 3, false, c -> c.get("mss") instanceof Number n && n.intValue() < 1200),

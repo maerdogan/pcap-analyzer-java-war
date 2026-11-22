@@ -14,7 +14,7 @@ public final class Builder {
     }
 
     static final class Req {
-        int frame, startFrame; String method, uri, host, version, requestId, headers, body, xff, clientIp, clientIpHeader; Long contentLength;
+        int frame, startFrame; String method, uri, host, version, requestId, headers, body, xff, clientIp, clientIpHeader, userAgent; Long contentLength;
     }
 
     static final class H2 {
@@ -223,6 +223,24 @@ public final class Builder {
             String ip = clientAddress(name, header.apply(name));
             if (ip != null) { r.clientIp = ip; r.clientIpHeader = name; return; }
         }
+    }
+
+    /** Paths and user agents of load balancer and Kubernetes health checks. PCAP_ANALYZER_HEALTH_PATHS adds paths, comma separated. */
+    static final List<String> HEALTH_PATHS = new ArrayList<>(List.of("/health", "/healthz", "/healthcheck", "/health-check", "/ready", "/readyz", "/livez", "/ping", "/status", "/actuator/health", "/q/health"));
+    static final java.util.regex.Pattern HEALTH_AGENT = java.util.regex.Pattern.compile("(?i)monitor|kube-probe|health.?check|NetScaler|ELB-HealthChecker|GoogleHC|Consul Health|Envoy/HC");
+    static {
+        String more = System.getenv("PCAP_ANALYZER_HEALTH_PATHS");
+        if (more != null) for (String p : more.split(",")) if (!p.isBlank()) HEALTH_PATHS.add(p.strip().toLowerCase());
+    }
+
+    static boolean healthCheck(String uri, String userAgent) {
+        if (userAgent != null && HEALTH_AGENT.matcher(userAgent).find()) return true;
+        if (uri == null) return false;
+        String path = uri.split("\\?")[0].toLowerCase();
+        if (path.length() > 1 && path.endsWith("/")) path = path.substring(0, path.length() - 1);
+        // A service prefix is fine for health and readiness paths, as in /orders/healthz; /ping and /status only on their own
+        for (String h : HEALTH_PATHS) if (path.equals(h) || path.endsWith(h) && h.matches(".*(health|ready|live).*")) return true;
+        return false;
     }
 
     static String requestId(String[] lines, int index) {
@@ -524,6 +542,7 @@ public final class Builder {
                 r.xff = first(p, "http.x_forwarded_for");
                 final String[] reqLines = many(p, "http.request.line"); final int idx = i;
                 clientIp(r, h -> header(reqLines, h, idx));
+                r.userAgent = header(reqLines, "user-agent", idx);
                 s.requests.add(r);
             }
             s.reqEnd = pk.seq + pk.payload;
@@ -736,7 +755,8 @@ public final class Builder {
             Req q = new Req();
             q.frame = q.startFrame = qFirst.frame; q.method = st.req.get(":method"); q.uri = st.req.get(":path"); q.host = st.req.get(":authority"); q.version = "HTTP/2";
             final Map<String, String> h2req = st.req;
-            clientIp(q, h -> { for (var kv : h2req.entrySet()) if (kv.getKey().equalsIgnoreCase(h)) return kv.getValue(); return null; });
+q.userAgent = st.req.get("user-agent");
+                        clientIp(q, h -> { for (var kv : h2req.entrySet()) if (kv.getKey().equalsIgnoreCase(h)) return kv.getValue(); return null; });
             Resp r = null;
             if (st.resp != null) {
                 r = new Resp();
@@ -890,6 +910,8 @@ public final class Builder {
         m.put("request_id", q.requestId);
         m.put("x_forwarded_for", q.xff);
         m.put("proxy_client", s.proxyClient);
+        m.put("user_agent", q.userAgent);
+        m.put("health_check", healthCheck(q.uri, q.userAgent));
         // The original client: a configured header first, then a PROXY protocol header
         m.put("original_client", q.clientIp != null ? q.clientIp : s.proxyClient);
         m.put("original_client_from", q.clientIp != null ? q.clientIpHeader : s.proxyClient != null ? "PROXY " + s.proxyVersion : null);
