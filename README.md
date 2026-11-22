@@ -39,6 +39,7 @@ Sign in with HTTP Basic as `admin`. Open `/pcap-analyzer/`.
 | `PCAP_ANALYZER_TIMEOUT_S` | Time limit of one tshark run. Default 900. |
 | `PCAP_ANALYZER_GEOIP_DIR` | Folder with MaxMind GeoLite2 Country and ASN files. |
 | `PCAP_ANALYZER_REQUEST_ID_HEADER` | Header that follows a request through proxies. Default `x-request-id`. |
+| `PCAP_ANALYZER_CLIENT_IP_HEADER` | Headers that carry the original client, comma separated, tried in order. Default `x-forwarded-for,x-real-ip,true-client-ip,x-client-ip,client-ip,forwarded`. A NetScaler adds its own with *Client IP header* on the service. |
 
 ## REST API
 

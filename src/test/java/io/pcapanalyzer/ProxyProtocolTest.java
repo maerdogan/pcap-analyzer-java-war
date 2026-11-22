@@ -38,8 +38,25 @@ class ProxyProtocolTest {
     @Test
     void requestsBehindTheHeaderAreStillRead() {
         List<Map<String, Object>> txns = rows("transactions");
-        assertEquals(2, txns.size());
+        assertEquals(3, txns.size());
         assertEquals("203.0.113.7:40000", txns.get(0).get("proxy_client"));
         assertEquals(200, ((Number) txns.get(0).get("status")).intValue());
+    }
+
+    @Test
+    void originalClientComesFromTheHeaderOrTheProxyHeader() {
+        List<Map<String, Object>> txns = rows("transactions");
+        assertEquals("203.0.113.7:40000", txns.get(0).get("original_client"));
+        assertEquals("PROXY v2", txns.get(0).get("original_client_from"));
+        assertEquals("198.51.100.5", txns.get(2).get("original_client"));
+        assertEquals("x-forwarded-for", txns.get(2).get("original_client_from"));
+    }
+
+    @Test
+    void clientAddressReadsListsAndForwarded() {
+        assertEquals("198.51.100.5", Builder.clientAddress("x-forwarded-for", "198.51.100.5, 10.0.0.1"));
+        assertEquals("[2001:db8::1]:4711", Builder.clientAddress("forwarded", "for=\"[2001:db8::1]:4711\";proto=https, for=10.0.0.1"));
+        assertEquals("192.0.2.60", Builder.clientAddress("forwarded", "proto=http;for=192.0.2.60;by=203.0.113.43"));
+        assertEquals(null, Builder.clientAddress("forwarded", "for=unknown"));
     }
 }

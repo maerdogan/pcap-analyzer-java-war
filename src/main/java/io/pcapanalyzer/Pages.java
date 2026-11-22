@@ -543,6 +543,7 @@ public final class Pages {
           .append(breakdown(c, budget)).append("</section><section class=\"panel\"><h2>").append(esc(c.t("Request"))).append("</h2><dl class=\"facts\">");
         facts(sb, c.t("Host"), t.get("host") == null ? "–" : t.get("host"));
         facts(sb, c.t("Client"), t.get("client"));
+        if (t.get("original_client") != null) facts(sb, c.t("Original client"), t.get("original_client") + " (" + t.get("original_client_from") + ")");
         facts(sb, c.t("Server"), t.get("server"));
         facts(sb, "HTTP", t.get("http_version"));
         facts(sb, c.t("Request size"), Fmt.size((Number) t.get("req_bytes")));

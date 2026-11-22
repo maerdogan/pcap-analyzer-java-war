@@ -14,7 +14,7 @@ public final class Builder {
     }
 
     static final class Req {
-        int frame, startFrame; String method, uri, host, version, requestId, headers, body, xff; Long contentLength;
+        int frame, startFrame; String method, uri, host, version, requestId, headers, body, xff, clientIp, clientIpHeader; Long contentLength;
     }
 
     static final class H2 {
@@ -195,6 +195,29 @@ public final class Builder {
     static final java.util.regex.Pattern TRACEPARENT = java.util.regex.Pattern.compile("[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}");
 
     /** The ID that follows a request through proxies. tshark lists the lines of pipelined requests as one block, so the Nth request owns the Nth copy of a header. */
+    /** Headers a proxy writes the original client into, in the order they are tried. PCAP_ANALYZER_CLIENT_IP_HEADER sets them, comma separated. */
+    static final List<String> CLIENT_IP_HEADERS = List.of(Optional.ofNullable(System.getenv("PCAP_ANALYZER_CLIENT_IP_HEADER")).filter(v -> !v.isBlank())
+            .orElse("x-forwarded-for,x-real-ip,true-client-ip,x-client-ip,client-ip,forwarded").toLowerCase().replace(" ", "").split(","));
+
+    /** The original client in a header value: the first address of a list, and the for= part of a Forwarded header. */
+    static String clientAddress(String name, String value) {
+        if (value == null) return null;
+        String v = value.split(",")[0].strip();
+        if (name.equals("forwarded")) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?i)(?:^|;)\\s*for=\"?([^\";]+)").matcher(v);
+            v = m.find() ? m.group(1) : "";
+        }
+        return v.isEmpty() || v.equalsIgnoreCase("unknown") ? null : v;
+    }
+
+    /** Sets the request's original client from the first configured header that has one. */
+    static void clientIp(Req r, java.util.function.Function<String, String> header) {
+        for (String name : CLIENT_IP_HEADERS) {
+            String ip = clientAddress(name, header.apply(name));
+            if (ip != null) { r.clientIp = ip; r.clientIpHeader = name; return; }
+        }
+    }
+
     static String requestId(String[] lines, int index) {
         String named = header(lines, REQUEST_ID_HEADER, index);
         if (named != null && !named.isBlank()) return named;
@@ -491,6 +514,8 @@ public final class Builder {
                 String[] bodies = many(p, "http.file_data");
                 r.body = bodies.length > 0 ? Privacy.preview(bodies[0]) : null;
                 r.xff = first(p, "http.x_forwarded_for");
+                final String[] reqLines = many(p, "http.request.line"); final int idx = i;
+                clientIp(r, h -> header(reqLines, h, idx));
                 s.requests.add(r);
             }
             s.reqEnd = pk.seq + pk.payload;
@@ -700,6 +725,8 @@ public final class Builder {
             Pkt rFirst = st.resp == null ? null : st.respPk, rLast = st.sEnd != null ? st.sEnd : st.lastS != null ? st.lastS : rFirst;
             Req q = new Req();
             q.frame = q.startFrame = qFirst.frame; q.method = st.req.get(":method"); q.uri = st.req.get(":path"); q.host = st.req.get(":authority"); q.version = "HTTP/2";
+            final Map<String, String> h2req = st.req;
+            clientIp(q, h -> { for (var kv : h2req.entrySet()) if (kv.getKey().equalsIgnoreCase(h)) return kv.getValue(); return null; });
             Resp r = null;
             if (st.resp != null) {
                 r = new Resp();
@@ -839,6 +866,9 @@ public final class Builder {
         m.put("request_id", q.requestId);
         m.put("x_forwarded_for", q.xff);
         m.put("proxy_client", s.proxyClient);
+        // The original client: a configured header first, then a PROXY protocol header
+        m.put("original_client", q.clientIp != null ? q.clientIp : s.proxyClient);
+        m.put("original_client_from", q.clientIp != null ? q.clientIpHeader : s.proxyClient != null ? "PROXY " + s.proxyVersion : null);
         m.put("content_encoding", r == null ? null : r.encoding); m.put("transfer_encoding", r == null ? null : r.transfer);
         m.put("last_frame", rLast == null ? null : rLast.frame);
         m.put("head_len", r == null || r.headLen == 0 ? null : r.headLen);
