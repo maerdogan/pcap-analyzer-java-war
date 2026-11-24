@@ -31,7 +31,6 @@ import java.util.regex.Pattern;
 @MultipartConfig(maxFileSize = Settings.MAX_UPLOAD, maxRequestSize = Settings.MAX_UPLOAD + (1 << 20), fileSizeThreshold = 1 << 20)
 public class AppServlet extends HttpServlet {
     private static final Pattern ID = Pattern.compile("[0-9a-f]{16}");
-    private static final Pattern DISPLAY = Pattern.compile("[A-Za-z0-9_.:=!<>&|()\\s\"'/,-]{0,300}");
     private static final Pattern HOST = Pattern.compile("[0-9A-Fa-f:.]{2,45}(/\\d{1,3})?");
     private static final Pattern NAME = Pattern.compile("[0-9a-f]{16}");
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -295,12 +294,10 @@ public class AppServlet extends HttpServlet {
                 own.port() != null ? own.port() : fallback.port(), own.kind() != null ? own.kind() : fallback.kind(), own.url() != null ? own.url() : fallback.url(), own.minSize(), own.sizeOf(), own.start(), own.end());
     }
 
-    private static final Pattern DISPLAY_FILTER = Pattern.compile("[A-Za-z0-9_.:=!<>&|()\\s\"'/,-]{0,300}");
 
-    /** A display filter typed by the user. Only plain filter characters pass, since it goes to tshark as written. */
+    /** The display filter the user picked. Only a preset passes, since it goes to tshark as written. */
     private static String flt(HttpServletRequest req) {
-        String f = Optional.ofNullable(req.getParameter("filter")).orElse("").strip();
-        return DISPLAY_FILTER.matcher(f).matches() ? f : "";
+        return DisplayFilters.allowed(req.getParameter("filter"));
     }
 
     /** Headers and body previews of each request, kept apart from the main result so it stays small. */
@@ -804,7 +801,7 @@ public class AppServlet extends HttpServlet {
         if (until != null) parts.add("frame.time_epoch <= " + until);
         String display = Optional.ofNullable(req.getParameter("display_filter")).orElse("").strip();
         if (!display.isEmpty()) {
-            if (!DISPLAY.matcher(display).matches()) throw new IllegalArgumentException("filter");
+            if (!DisplayFilters.PRESETS.containsKey(display)) throw new IllegalArgumentException("filter");
             parts.add("(" + display + ")");
         }
         return String.join(" and ", parts);

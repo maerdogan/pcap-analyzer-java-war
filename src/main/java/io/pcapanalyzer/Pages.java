@@ -160,7 +160,7 @@ public final class Pages {
         sb.append("<label>").append(esc(c.t("TCP port"))).append(" <input name=\"port\" inputmode=\"numeric\"></label>");
         sb.append("<label>").append(esc(c.t("From"))).append(" <input name=\"start\" type=\"datetime-local\" step=\"1\"></label>");
         sb.append("<label>").append(esc(c.t("Until"))).append(" <input name=\"end\" type=\"datetime-local\" step=\"1\"></label>");
-        sb.append("<label class=\"wide\">").append(esc(c.t("Wireshark display filter"))).append(" <input name=\"display_filter\" spellcheck=\"false\" placeholder=\"http.host contains &quot;example&quot;\"></label>");
+        sb.append("<label class=\"wide\">").append(esc(c.t("Wireshark display filter"))).append(" ").append(DisplayFilters.select(c, "display_filter", "")).append("</label>");
         sb.append("<label class=\"wide\">").append(esc(c.t("Decode As"))).append(" <input name=\"decode_as\" spellcheck=\"false\" placeholder=\"tcp.port==9000,http; udp.port==4433,quic\"><span class=\"hint\">")
           .append(esc(c.t("Read a port as another protocol, as Wireshark's Decode As does. Separate rules with ;"))).append("</span></label></div></details>\n<button class=\"primary\">").append(esc(c.t("Analyze capture"))).append("</button>\n</form>\n</section>\n</div>\n");
         return sb.toString();
@@ -983,7 +983,7 @@ public final class Pages {
             sb.append("<div id=\"stats-overview\" data-load=\"").append(c.path()).append("/a/").append(id).append("/stats/overview\"><p class=\"empty\">").append(esc(c.t("Reading the packets again. A large capture can take a few minutes the first time."))).append("</p></div>");
             sb.append("<div id=\"stats-services\" data-load=\"").append(c.path()).append("/a/").append(id).append("/stats/services\"></div>");
             sb.append("<section class=\"panel\"><h2>").append(esc(c.t("IO graph"))).append("</h2><form class=\"inline\" method=\"get\" action=\"").append(c.path()).append("/a/").append(id).append("\"><input type=\"hidden\" name=\"tab\" value=\"stats\"><label class=\"wide\">")
-              .append(esc(c.t("Wireshark display filter"))).append(" <input name=\"filter\" spellcheck=\"false\" value=\"").append(esc(flt)).append("\" placeholder=\"tcp.analysis.retransmission\"></label><button>").append(esc(c.t("Draw"))).append("</button></form>")
+              .append(esc(c.t("Wireshark display filter"))).append(" ").append(DisplayFilters.select(c, "filter", flt)).append("</label><button>").append(esc(c.t("Draw"))).append("</button></form>")
               .append("<div class=\"chart tall\" data-chart=\"io\" data-src=\"").append(c.path()).append("/api/a/").append(id).append("/io?filter=").append(java.net.URLEncoder.encode(flt, java.nio.charset.StandardCharsets.UTF_8)).append("\" data-name=\"io-graph\"></div></section>");
         } else sb.append("<p class=\"empty\">").append(esc(c.t("The original capture was not kept, so packets cannot be read again."))).append("</p>");
         sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("HTTP load distribution"))).append("</h2>");
@@ -999,7 +999,7 @@ public final class Pages {
         sb.append("</section>").append(sequencesPanel(c, seqs));
         if (kept) {
             sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Flow graph"))).append("</h2><p class=\"muted\">").append(esc(c.t("Packets between hosts on a time axis, as in Wireshark's Flow Graph."))).append("</p><form method=\"get\" action=\"")
-              .append(c.path()).append("/a/").append(id).append("/flow\" class=\"inline\"><label class=\"wide\">").append(esc(c.t("Wireshark display filter"))).append(" <input name=\"filter\" spellcheck=\"false\" placeholder=\"dns or icmp\"></label><button>")
+              .append(c.path()).append("/a/").append(id).append("/flow\" class=\"inline\"><label class=\"wide\">").append(esc(c.t("Wireshark display filter"))).append(" ").append(DisplayFilters.select(c, "filter", "")).append("</label><button>")
               .append(esc(c.t("Show flow graph"))).append("</button></form></section><section class=\"panel\"><h2>").append(esc(c.t("Export objects"))).append("</h2><p class=\"muted\">")
               .append(esc(c.t("Files carried over HTTP, SMB, TFTP, FTP, e-mail or DICOM, as Wireshark's Export Objects finds them."))).append("</p><a class=\"button\" href=\"").append(c.path()).append("/a/").append(id).append("/objects\">")
               .append(esc(c.t("Find files in this capture"))).append("</a></section>");
@@ -1109,7 +1109,7 @@ public final class Pages {
         StringBuilder sb = new StringBuilder(crumbs(c, new String[][] {{c.t("Captures"), c.path() + "/"}, {(String) meta.get("filename"), c.path() + "/a/" + id}, {c.t("Statistics"), c.path() + "/a/" + id + "?tab=stats"}, {c.t("Flow graph"), null}}));
         sb.append("<header class=\"hero\"><div class=\"hero-head\"><div><h1>").append(esc(c.t("Flow graph"))).append("</h1><p class=\"muted\">")
           .append(esc(stream != null ? c.t("Connection {n}", "n", stream) : f.get("filter") != null ? f.get("filter") : c.t("All packets"))).append("</p></div></div></header><section class=\"panel\"><form method=\"get\" class=\"inline\"><label class=\"wide\">")
-          .append(esc(c.t("Wireshark display filter"))).append(" <input name=\"filter\" value=\"").append(esc(flt)).append("\" spellcheck=\"false\" placeholder=\"dns or icmp\"></label><button>").append(esc(c.t("Show flow graph"))).append("</button></form>");
+          .append(esc(c.t("Wireshark display filter"))).append(" ").append(DisplayFilters.select(c, "filter", flt)).append("</label><button>").append(esc(c.t("Show flow graph"))).append("</button></form>");
         if (((List<?>) f.get("rows")).isEmpty()) sb.append("<p class=\"empty\">").append(esc(c.t("No packets match."))).append("</p>"); else sb.append(flowSvg(c, f));
         return sb.append("</section>").toString();
     }
