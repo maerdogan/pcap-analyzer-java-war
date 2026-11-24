@@ -6,7 +6,98 @@ import java.util.*;
 public final class Inspect {
     public record Query(String src, Integer srcPort, String dst, Integer port, String kind, String url, Long minSize, String sizeOf, Double start, Double end) {}
 
+    /** Filter of the slowest requests list: text in the method, URL, host or status, a status class, and a duration range in milliseconds. */
+    public record Slow(String text, String status, Double minMs, Double maxMs) {
+        boolean empty() { return text == null && status == null && minMs == null && maxMs == null; }
+    }
+
+    static final List<String> SLOW_FIELDS = List.of("slow_q", "slow_status", "slow_min_ms", "slow_max_ms");
+    static final List<String> STATUS_CLASSES = List.of("2xx", "3xx", "4xx", "5xx", "none");
+
     private Inspect() {}
+
+    public static Slow slow(Map<String, String[]> p) {
+        String st = str(p, "slow_status");
+        if (st != null && !STATUS_CLASSES.contains(st)) st = null;
+        Double min = dbl(p, "slow_min_ms"), max = dbl(p, "slow_max_ms");
+        return new Slow(str(p, "slow_q"), st, min != null && min >= 0 ? min : null, max != null && max >= 0 ? max : null);
+    }
+
+    static boolean slowMatches(Slow s, Map<String, Object> x) {
+        if (s == null || s.empty()) return true;
+        if (s.text() != null) {
+            String hay = (x.get("method") + " " + x.get("uri") + " " + x.get("host") + " " + x.get("status")).toLowerCase();
+            if (!hay.contains(s.text().toLowerCase())) return false;
+        }
+        Integer code = Analysis.statusOf(x);
+        if (s.status() != null) {
+            String cls = code == null || code == 0 ? "none" : (code / 100) + "xx";
+            if (!s.status().equals(cls)) return false;
+        }
+        Double total = Analysis.dn(x.get("total"));
+        if (s.minMs() != null && (total == null || total * 1000 < s.minMs())) return false;
+        if (s.maxMs() != null && (total == null || total * 1000 > s.maxMs())) return false;
+        return true;
+    }
+
+    static final double[] BUCKETS_S = {1, 5, 10, 30, 60, 300, 900, 1800, 3600, 21600, 86400};
+    static final int MAX_POINTS = 120;
+
+    /** Bucket width that keeps a time series of the span under MAX_POINTS points. */
+    static double bucket(double span) {
+        for (double b : BUCKETS_S) if (span / b <= MAX_POINTS) return b;
+        return BUCKETS_S[BUCKETS_S.length - 1];
+    }
+
+    /** One URL over time: per bucket the requests, failures, average and 95th percentile total, and the average of each phase. Empty buckets are left out. */
+    static List<Map<String, Object>> series(List<Map<String, Object>> g, double from, double width) {
+        TreeMap<Long, List<Map<String, Object>>> by = new TreeMap<>();
+        for (Map<String, Object> t : g) by.computeIfAbsent((long) Math.floor((Analysis.d(t.get("req_start")) - from) / width), k -> new ArrayList<>()).add(t);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map.Entry<Long, List<Map<String, Object>>> e : by.entrySet()) {
+            List<Double> totals = new ArrayList<>();
+            Map<String, Double> ph = new LinkedHashMap<>();
+            int failed = 0;
+            for (Map<String, Object> t : e.getValue()) {
+                Double tot = Analysis.dn(t.get("total"));
+                if (tot != null) totals.add(tot);
+                Integer st = Analysis.statusOf(t);
+                if (st == null || st == 0 || st >= 500) failed++;
+                if (t.get("phases") instanceof Map<?, ?> m) for (String name : Analysis.PHASES) if (m.get(name) instanceof Number n) ph.merge(name, n.doubleValue(), Double::sum);
+            }
+            Collections.sort(totals);
+            int n = e.getValue().size();
+            Map<String, Object> p = new LinkedHashMap<>();
+            p.put("t", from + e.getKey() * width); p.put("n", n); p.put("failed", failed);
+            p.put("avg", totals.isEmpty() ? null : totals.stream().mapToDouble(Double::doubleValue).sum() / totals.size());
+            p.put("p95", totals.isEmpty() ? null : totals.get(Math.min(totals.size() - 1, (int) Math.ceil(0.95 * totals.size()) - 1)));
+            Map<String, Double> avgPh = new LinkedHashMap<>();
+            ph.forEach((k, v) -> { if (v > 0) avgPh.put(k, v / n); });
+            p.put("phases", avgPh);
+            out.add(p);
+        }
+        return out;
+    }
+
+    /** Where the time of each URL's requests went, on average: the phases of the requests, and the round trips on both sides of the capture point. */
+    static Map<String, Object> breakdown(List<Map<String, Object>> g, Map<Integer, Map<String, Object>> connOf) {
+        Map<String, double[]> sum = new LinkedHashMap<>();
+        java.util.function.BiConsumer<String, Object> add = (k, v) -> { if (v instanceof Number n) { double[] a = sum.computeIfAbsent(k, z -> new double[2]); a[0] += n.doubleValue(); a[1]++; } };
+        Set<Integer> seenConn = new HashSet<>();
+        for (Map<String, Object> x : g) {
+            Map<String, Object> cn = connOf.get(((Number) x.get("stream")).intValue());
+            if (cn != null && seenConn.add(((Number) cn.get("stream")).intValue())) { add.accept("rtt_client", cn.get("rtt_client")); add.accept("rtt_server", cn.get("rtt_server")); }
+            if (x.get("phases") instanceof Map<?, ?> ph) for (String name : Analysis.PHASES) add.accept(name, ph.get(name));
+            add.accept("upstream_time", x.get("upstream_time")); add.accept("gateway_time", x.get("gateway_time"));
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        // phases are averaged over all requests of the URL, so they add up to the average total
+        for (Map.Entry<String, double[]> e : sum.entrySet()) {
+            boolean phase = Arrays.asList(Analysis.PHASES).contains(e.getKey());
+            out.put(e.getKey(), e.getValue()[0] / (phase ? g.size() : e.getValue()[1]));
+        }
+        return out;
+    }
 
     static String str(Map<String, String[]> p, String k) {
         String[] v = p.get(k);
@@ -65,7 +156,10 @@ public final class Inspect {
     }
 
     @SuppressWarnings("unchecked")
-    public static Map<String, Object> run(Query q, Map<String, Object> result) {
+    public static Map<String, Object> run(Query q, Map<String, Object> result) { return run(q, result, null); }
+
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> run(Query q, Map<String, Object> result, Slow slow) {
         List<Map<String, Object>> conns = new ArrayList<>(), all = (List<Map<String, Object>>) result.get("connections");
         Map<Integer, Map<String, Object>> connOf = new HashMap<>();
         for (Map<String, Object> c : all) if (connMatches(q, c)) { conns.add(c); connOf.put(((Number) c.get("stream")).intValue(), c); }
@@ -97,8 +191,22 @@ public final class Inspect {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("requests", Analysis.http(txns));
         out.put("connections", cs);
-        out.put("urls", Analysis.urls(txns));
-        out.put("slowest", Analysis.slowest(txns, connOf));
+        List<Map<String, Object>> urls = Analysis.urls(txns);
+        Map<String, List<Map<String, Object>>> groups = new HashMap<>();
+        for (Map<String, Object> t : txns) groups.computeIfAbsent(t.get("method") + " " + t.get("url_template"), k -> new ArrayList<>()).add(t);
+        double from = txns.stream().mapToDouble(t -> Analysis.d(t.get("req_start"))).min().orElse(0), to = txns.stream().mapToDouble(t -> Analysis.d(t.get("req_start"))).max().orElse(0);
+        double width = bucket(to - from);
+        for (Map<String, Object> u : urls) {
+            List<Map<String, Object>> g = groups.getOrDefault(u.get("method") + " " + u.get("url"), List.of());
+            u.put("breakdown", breakdown(g, connOf));
+            u.put("series", series(g, from, width));
+        }
+        out.put("bucket_s", width);
+        out.put("urls", urls);
+        List<Map<String, Object>> slowTxns = new ArrayList<>();
+        for (Map<String, Object> t : txns) if (slowMatches(slow, t)) slowTxns.add(t);
+        out.put("slowest", Analysis.slowest(slowTxns, connOf));
+        out.put("slow_matched", slowTxns.size());
         return out;
     }
 }

@@ -93,9 +93,26 @@ public class AppServlet extends HttpServlet {
     private static Path dir(String id) { return Settings.workdir().resolve(id); }
 
     @SuppressWarnings("unchecked")
+    /** Parsed large files, so a page does not parse a result of tens of megabytes again. Soft references let the GC drop them when the heap is short. */
+    private record Parsed(long modified, long size, java.lang.ref.SoftReference<Object> tree) {}
+    private static final int CACHE_MIN_BYTES = 1 << 20, CACHE_ENTRIES = 4;
+    private static final Map<Path, Parsed> PARSED = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<Path, Parsed> e) { return size() > CACHE_ENTRIES; }
+    });
+
+    @SuppressWarnings("unchecked")
     private static Map<String, Object> read(Path file) {
         try {
-            return (Map<String, Object>) Json.parse(Files.readString(file, StandardCharsets.UTF_8));
+            long size = Files.size(file), modified = Files.getLastModifiedTime(file).toMillis();
+            if (size < CACHE_MIN_BYTES) return (Map<String, Object>) Json.parse(Files.readString(file, StandardCharsets.UTF_8));
+            Parsed p = PARSED.get(file);
+            Object tree = p != null && p.modified() == modified && p.size() == size ? p.tree().get() : null;
+            if (tree == null) {
+                tree = Json.parse(Files.readString(file, StandardCharsets.UTF_8));
+                PARSED.put(file, new Parsed(modified, size, new java.lang.ref.SoftReference<>(tree)));
+            }
+            // pages change the maps they get, so each gets its own copy
+            return (Map<String, Object>) Json.copy(tree);
         } catch (IOException | RuntimeException e) {
             return null;
         }
@@ -389,7 +406,7 @@ public class AppServlet extends HttpServlet {
             title = c.t("Export objects");
         } else if (parts.length == 2 && parts[1].equals("inspect")) {
             Map<String, String[]> params = req.getParameterMap();
-            main = Pages.inspectPage(c, meta, params, result, Inspect.run(Inspect.query(params), result));
+            main = Pages.inspectPage(c, meta, params, result, Inspect.run(Inspect.query(params), result, Inspect.slow(params)));
             nav = Pages.capnav(c, id, "inspect", issueCount);
             title = c.t("Inspect traffic");
         } else if (parts.length >= 3 && parts[1].equals("conn")) {

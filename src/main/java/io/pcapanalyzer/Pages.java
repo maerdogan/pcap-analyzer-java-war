@@ -6,6 +6,18 @@ import static io.pcapanalyzer.Fmt.esc;
 
 /** HTML of the pages, following the Python templates and their CSS classes. */
 public final class Pages {
+    /** Version of app.css and app.js in their URLs: the WAR's build time, so browsers fetch them again after every deployment, not only after a release. */
+    static final String ASSETS = Pages.VERSION + "." + Long.toString(assetsStamp(), 36);
+
+    private static long assetsStamp() {
+        try {
+            java.net.URL u = Pages.class.getResource("Pages.class");
+            return u == null ? System.currentTimeMillis() : u.openConnection().getLastModified();
+        } catch (java.io.IOException e) {
+            return System.currentTimeMillis();
+        }
+    }
+
     public static final String VERSION = "0.7.6";
 
     /** What every page needs: where the app lives, the language and the form token. */
@@ -59,10 +71,10 @@ public final class Pages {
         sb.append("<link rel=\"icon\" href=\"").append(p).append("/static/brand/favicon.png\" type=\"image/png\">\n");
         sb.append("<link rel=\"stylesheet\" href=\"").append(p).append("/static/vendor/ag-grid.min.css\">\n");
         sb.append("<link rel=\"stylesheet\" href=\"").append(p).append("/static/vendor/ag-theme-quartz.min.css\">\n");
-        sb.append("<link rel=\"stylesheet\" href=\"").append(p).append("/static/app.css?v=").append(VERSION).append("\">\n");
+        sb.append("<link rel=\"stylesheet\" href=\"").append(p).append("/static/app.css?v=").append(ASSETS).append("\">\n");
         sb.append("<script src=\"").append(p).append("/static/vendor/ag-grid.min.js\" defer></script>\n");
         sb.append("<script src=\"").append(p).append("/static/vendor/echarts.min.js\" defer></script>\n");
-        sb.append("<script src=\"").append(p).append("/static/app.js?v=").append(VERSION).append("\" defer></script>\n</head>\n");
+        sb.append("<script src=\"").append(p).append("/static/app.js?v=").append(ASSETS).append("\" defer></script>\n</head>\n");
         sb.append("<body class=\"app\" data-words='").append(esc(words.toString()).replace("&quot;", "\"").replace("&#39;", "&apos;")).append("'>\n");
         sb.append("<a class=\"skip\" href=\"#main\">").append(esc(c.t("Skip to content"))).append("</a>\n");
         sb.append("<aside class=\"side\" id=\"side\">\n<a class=\"side-brand\" href=\"").append(p).append("/\" aria-label=\"pcap-analyzer\"><img src=\"").append(p)
@@ -677,12 +689,14 @@ public final class Pages {
         sb.append("</dl></section>");
         List<Map<String, Object>> urls = (List<Map<String, Object>>) inspected.get("urls");
         if (!urls.isEmpty()) {
-            sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("By URL"))).append("</h2><p class=\"hint pad\">").append(esc(c.t("Select a column title to sort by it, and again to turn the order around.")))
+            sb.append(urlView(c, urls, Analysis.d(inspected.get("bucket_s"))));
+            sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("By URL"))).append("</h2><p class=\"hint pad\">").append(esc(c.t("Select a row to see that URL over time above. Select a column title to sort by it.")))
               .append("</p><div class=\"table-wrap\"><table data-sortable><thead><tr><th data-sort=\"text\">").append(esc(c.t("Method"))).append("</th><th data-sort=\"text\">URL</th>");
             for (String h : new String[] {"Requests", "Failed", "Average", "95th percentile", "Slowest"}) sb.append("<th class=\"num\" data-sort=\"num\">").append(esc(c.t(h))).append("</th>");
             sb.append("<th data-sort=\"text\">").append(esc(c.t("Status"))).append("</th></tr></thead><tbody>");
+            int ui = 0;
             for (Map<String, Object> u : urls) {
-                sb.append("<tr><td>").append(esc(u.get("method"))).append("</td><td>").append(esc(u.get("url"))).append("</td>");
+                sb.append("<tr class=\"clickable\" data-url-pick=\"").append(ui++).append("\" tabindex=\"0\"><td>").append(esc(u.get("method"))).append("</td><td>").append(esc(u.get("url"))).append("</td>");
                 for (String k : new String[] {"requests", "failed"}) sb.append("<td class=\"num\" data-value=\"").append(u.get(k)).append("\">").append(u.get(k)).append("</td>");
                 for (String k : new String[] {"avg_total", "p95_total", "max_total"}) sb.append("<td class=\"num\" data-value=\"").append(u.get(k) == null ? -1 : u.get(k)).append("\">").append(Fmt.seconds(Analysis.dn(u.get(k)))).append("</td>");
                 StringBuilder st = new StringBuilder();
@@ -692,7 +706,63 @@ public final class Pages {
             sb.append("</tbody></table></div></section>");
         }
         List<Map<String, Object>> slow = (List<Map<String, Object>>) inspected.get("slowest");
-        if (!slow.isEmpty()) sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("Slowest {n} requests", "n", slow.size()))).append("</h2>").append(waterfall(c, slow)).append("</section>");
+        if (((Number) rq.get("requests")).intValue() > 0) {
+            sb.append("<section class=\"panel flush\" id=\"slowest\"><h2 class=\"pad\">").append(esc(c.t("Slowest {n} requests", "n", slow.size()))).append("</h2>");
+            sb.append("<form class=\"inline pad\" method=\"get\" action=\"").append(c.path()).append("/a/").append(id).append("/inspect#slowest\">");
+            for (String k : Records.FILTER_FIELDS) { String v = Inspect.str(params, k); if (v != null) sb.append("<input type=\"hidden\" name=\"").append(k).append("\" value=\"").append(esc(v)).append("\">"); }
+            for (String k : new String[] {"start", "end"}) { String v = Inspect.str(params, k); if (v != null) sb.append("<input type=\"hidden\" name=\"").append(k).append("\" value=\"").append(esc(v)).append("\">"); }
+            sb.append("<label>").append(esc(c.t("Request contains"))).append(" <input name=\"slow_q\" spellcheck=\"false\" value=\"").append(esc(Optional.ofNullable(Inspect.str(params, "slow_q")).orElse(""))).append("\" placeholder=\"GET /api\"></label>");
+            String sst = Optional.ofNullable(Inspect.str(params, "slow_status")).orElse("");
+            sb.append("<label>").append(esc(c.t("Status"))).append(" <select name=\"slow_status\"><option value=\"\">").append(esc(c.t("All"))).append("</option>");
+            for (String s : Inspect.STATUS_CLASSES) sb.append("<option value=\"").append(s).append("\"").append(s.equals(sst) ? " selected" : "").append(">").append(esc(s.equals("none") ? c.t("No answer") : s)).append("</option>");
+            sb.append("</select></label>");
+            sb.append("<label>").append(esc(c.t("Duration from, ms"))).append(" <input name=\"slow_min_ms\" type=\"number\" min=\"0\" step=\"any\" size=\"7\" value=\"").append(esc(Optional.ofNullable(Inspect.str(params, "slow_min_ms")).orElse(""))).append("\"></label>");
+            sb.append("<label>").append(esc(c.t("to, ms"))).append(" <input name=\"slow_max_ms\" type=\"number\" min=\"0\" step=\"any\" size=\"7\" value=\"").append(esc(Optional.ofNullable(Inspect.str(params, "slow_max_ms")).orElse(""))).append("\"></label>");
+            sb.append("<button>").append(esc(c.t("Filter"))).append("</button></form>");
+            sb.append("<p class=\"hint pad\">").append(esc(c.t("{n} requests match.", "n", inspected.get("slow_matched")))).append("</p>");
+            if (slow.isEmpty()) sb.append("<p class=\"empty\">").append(esc(c.t("No request matches this filter."))).append("</p>");
+            else sb.append(waterfall(c, slow));
+            sb.append("</section>");
+        }
+        return sb.toString();
+    }
+
+    /** One URL over time, as a dashboard panel: a time series of its duration split into phases, and beside it where the average time went.
+     *  Every URL's series and table are in the page; selecting a row in the URL table switches them. */
+    private static String urlView(Ctx c, List<Map<String, Object>> urls, double bucket) {
+        StringBuilder sb = new StringBuilder("<section class=\"panel url-view\" id=\"url-view\"><div class=\"section-head\"><h2 data-url-title>").append(esc(urls.get(0).get("method") + " " + urls.get(0).get("url")))
+            .append("</h2><p class=\"muted\">").append(esc(c.t("Per {time}", "time", Fmt.seconds(bucket)))).append("</p></div><div class=\"url-view-body\"><div class=\"chart\" data-url-chart></div><div class=\"url-side\">");
+        List<Object> data = new ArrayList<>();
+        Map<String, String> labels = new LinkedHashMap<>();
+        for (String ph : Analysis.PHASES) labels.put(ph, Knowledge.phaseLabel(ph, c.lang()));
+        for (int i = 0; i < urls.size(); i++) {
+            Map<String, Object> u = urls.get(i);
+            Map<String, Object> bd = u.get("breakdown") instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+            sb.append("<div class=\"url-table\" data-url-table=\"").append(i).append("\"").append(i == 0 ? "" : " hidden").append(">");
+            sb.append("<dl class=\"facts\">");
+            facts(sb, c.t("Requests"), u.get("requests")); facts(sb, c.t("Average"), Fmt.seconds(Analysis.dn(u.get("avg_total")))); facts(sb, c.t("95th percentile"), Fmt.seconds(Analysis.dn(u.get("p95_total"))));
+            sb.append("</dl><table class=\"breakdown\"><tbody>");
+            java.util.function.BiConsumer<String, String> row = (label, key) -> {
+                Double v = Analysis.dn(bd.get(key));
+                if (v != null && v > 0) sb.append("<tr><td>").append(Analysis.PHASES_SET.contains(key) ? "<i class=\"swatch ph-" + key + "\"></i>" : "").append(esc(label)).append("</td><td class=\"num\">").append(Fmt.seconds(v)).append("</td></tr>");
+            };
+            row.accept(c.t("Client ↔ capture point, round trip"), "rtt_client");
+            row.accept(c.t("Capture point ↔ server, round trip"), "rtt_server");
+            sb.append("<tr class=\"sep\"><td colspan=\"2\">").append(esc(c.t("Average request"))).append("</td></tr>");
+            for (String ph : Analysis.PHASES) {
+                row.accept(labels.get(ph), ph);
+                if (ph.equals("service")) { row.accept("↳ " + c.t("Upstream time reported by the gateway"), "upstream_time"); row.accept("↳ " + c.t("Time in the gateway itself"), "gateway_time"); }
+            }
+            sb.append("</tbody></table></div>");
+            Map<String, Object> d = new LinkedHashMap<>();
+            d.put("title", u.get("method") + " " + u.get("url")); d.put("series", u.get("series"));
+            data.add(d);
+        }
+        sb.append("<p class=\"hint\">").append(esc(c.t("Round trips are per connection and are not part of the total. The phases add up to the average."))).append("</p></div></div>");
+        Map<String, Object> all = new LinkedHashMap<>();
+        all.put("urls", data); all.put("labels", labels); all.put("bucket", bucket);
+        all.put("names", Map.of("requests", c.t("Requests"), "avg", c.t("Average"), "p95", c.t("95th percentile"), "failed", c.t("Failed")));
+        sb.append("<script type=\"application/json\" data-url-data>").append(Json.write(all).replace("</", "<\\/")).append("</script></section>");
         return sb.toString();
     }
 
