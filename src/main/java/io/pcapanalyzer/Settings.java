@@ -12,9 +12,18 @@ public final class Settings {
         return Path.of(v != null && !v.isBlank() ? v : System.getProperty("java.io.tmpdir") + "/pcap-analyzer");
     }
 
+    /** tshark: PCAP_ANALYZER_TSHARK when set, else the copy bundled in the WAR (Linux x86_64), else tshark from PATH. */
     public static String tshark() {
         String v = System.getenv("PCAP_ANALYZER_TSHARK");
-        return v != null && !v.isBlank() ? v : "tshark";
+        if (v != null && !v.isBlank()) return v;
+        Path bundled = BundledTShark.path();
+        return bundled != null ? bundled.toString() : "tshark";
+    }
+
+    /** Environment for a tshark run: the bundled copy reads its dissector data from its own share folder, unless WIRESHARK_DATA_DIR is set. */
+    public static void tsharkEnv(java.util.Map<String, String> env, String binary) {
+        Path data = BundledTShark.dataDir();
+        if (data != null && binary.equals(String.valueOf(BundledTShark.path())) && System.getenv("WIRESHARK_DATA_DIR") == null) env.put("WIRESHARK_DATA_DIR", data.toString());
     }
 
     public static String adminUser() {

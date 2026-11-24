@@ -38,6 +38,15 @@ public final class TShark {
 
     public TShark(String binary) { this.binary = binary; }
 
+    /** A process of tshark or mergecap, with the environment the bundled tshark needs. */
+    private ProcessBuilder pb(String... cmd) { return pb(java.util.Arrays.asList(cmd)); }
+
+    private ProcessBuilder pb(List<String> cmd) {
+        ProcessBuilder b = new ProcessBuilder(cmd);
+        Settings.tsharkEnv(b.environment(), binary);
+        return b;
+    }
+
     /** Feeds the capture to tshark's standard input: the capture stays where it is, and no copy fills /tmp. A reader that stops early simply ends the feed. */
     static Process pump(Process p, Path capture) {
         Thread t = new Thread(() -> {
@@ -52,7 +61,7 @@ public final class TShark {
 
     public String version() throws TsharkException {
         try {
-            Process p = new ProcessBuilder(binary, "--version").redirectErrorStream(true).start();
+            Process p = pb(binary, "--version").redirectErrorStream(true).start();
             String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             p.waitFor();
             Matcher m = Pattern.compile("(\\d+)\\.(\\d+)\\.(\\d+)").matcher(out);
@@ -113,7 +122,7 @@ public final class TShark {
             cmd.addAll(extra);
             if (filter != null && !filter.isBlank()) { cmd.add("-Y"); cmd.add(filter); }
             for (String f : fields) { cmd.add("-e"); cmd.add(f); }
-            Process p = pump(new ProcessBuilder(cmd).redirectError(ProcessBuilder.Redirect.DISCARD).start(), capture);
+            Process p = pump(pb(cmd).redirectError(ProcessBuilder.Redirect.DISCARD).start(), capture);
             Thread killer = null;
             if (timeoutSeconds > 0) {
                 final Process proc = p;
@@ -140,7 +149,7 @@ public final class TShark {
     public String follow(Path capture, int stream, long timeoutSeconds) throws TsharkException {
         Path copy = null;
         try {
-            Process p = pump(new ProcessBuilder(binary, "-n", "-r", "-", "-q", "-z", "follow,tcp,ascii," + stream).redirectError(ProcessBuilder.Redirect.DISCARD).start(), capture);
+            Process p = pump(pb(binary, "-n", "-r", "-", "-q", "-z", "follow,tcp,ascii," + stream).redirectError(ProcessBuilder.Redirect.DISCARD).start(), capture);
             Thread killer = new Thread(() -> { try { if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) p.destroyForcibly(); } catch (InterruptedException ignored) { } });
             killer.setDaemon(true);
             killer.start();
@@ -182,7 +191,7 @@ public final class TShark {
         Path copy = null, out = null;
         try {
             out = Files.createTempFile(Path.of("/tmp"), "pcap-analyzer-", ".pcapng");
-            Process p = pump(new ProcessBuilder(binary, "-n", "-r", "-", "-Y", "tcp.stream == " + stream, "-w", out.toString()).redirectErrorStream(true).start(), capture);
+            Process p = pump(pb(binary, "-n", "-r", "-", "-Y", "tcp.stream == " + stream, "-w", out.toString()).redirectErrorStream(true).start(), capture);
             p.getInputStream().readAllBytes();
             if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) { p.destroyForcibly(); throw new TsharkException("tshark took too long"); }
             return Files.readAllBytes(out);
@@ -206,7 +215,7 @@ public final class TShark {
         try {
             Path tmpOut = Files.createTempDirectory(Path.of("/tmp"), "pcap-analyzer-obj-");
             try {
-                Process p = pump(new ProcessBuilder(binary, "-n", "-r", "-", "-q", "--export-objects", protocol + "," + tmpOut).redirectErrorStream(true).start(), capture);
+                Process p = pump(pb(binary, "-n", "-r", "-", "-q", "--export-objects", protocol + "," + tmpOut).redirectErrorStream(true).start(), capture);
                 p.getInputStream().readNBytes(4000);
                 if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) { p.destroyForcibly(); throw new TsharkException("tshark took too long"); }
                 if (p.exitValue() != 0) return false;
@@ -226,7 +235,7 @@ public final class TShark {
     public String statsText(Path capture, String statistic, long timeoutSeconds) throws TsharkException {
         Path copy = null;
         try {
-            Process p = pump(new ProcessBuilder(binary, "-n", "-r", "-", "-q", "-z", statistic).redirectError(ProcessBuilder.Redirect.DISCARD).start(), capture);
+            Process p = pump(pb(binary, "-n", "-r", "-", "-q", "-z", statistic).redirectError(ProcessBuilder.Redirect.DISCARD).start(), capture);
             Thread killer = new Thread(() -> { try { if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) p.destroyForcibly(); } catch (InterruptedException ignored) { } });
             killer.setDaemon(true);
             killer.start();
@@ -255,7 +264,7 @@ public final class TShark {
         for (String f : FIELDS) { cmd.add("-e"); cmd.add(f); }
         Process p;
         try {
-            p = pump(new ProcessBuilder(cmd).start(), capture);
+            p = pump(pb(cmd).start(), capture);
         } catch (IOException e) {
             throw new TsharkException("tshark could not be started: " + e.getMessage());
         }

@@ -9,7 +9,7 @@ Upload a PCAP and see where the time went: connection setup, network delay, serv
 
 It shows the same pages as the Python version, in Turkish, English, German and Spanish.
 
-Requires Java 17+, Maven 3.9+ to build, tshark 4.0+ (and `mergecap` for captures in parts) on the server.
+Requires Java 17+ and Maven 3.9+ to build. The WAR carries its own tshark 4.6 for Linux x86_64 (with its own libraries, so any distribution works); it is unpacked into the work folder on first use. On other systems, install tshark 4.0+ or set `PCAP_ANALYZER_TSHARK`. Captures in parts also need `mergecap` on the PATH.
 
 ```bash
 mvn package                      # builds target/pcap-analyzer.war
@@ -33,7 +33,7 @@ Sign in with HTTP Basic as `admin`. Open `/pcap-analyzer/`.
 |---|---|
 | `PCAP_ANALYZER_WORKDIR` | Where analyses are kept. Default: the Java temp folder. |
 | `PCAP_ANALYZER_ADMIN_USER`, `PCAP_ANALYZER_ADMIN_PASSWORD` | The shared login. A password set under Preferences replaces the variable. |
-| `PCAP_ANALYZER_TSHARK` | Path of tshark. |
+| `PCAP_ANALYZER_TSHARK` | Path of tshark, when not the bundled one. Not needed on Linux x86_64. |
 | `PCAP_ANALYZER_TTL_DAYS` | Days an analysis is kept. Default 7. |
 | `PCAP_ANALYZER_KEEP_CAPTURE` | `0` deletes the capture after the analysis. Packets, graphs, followed streams, services and objects then are not available. |
 | `PCAP_ANALYZER_TIMEOUT_S` | Time limit of one tshark run. Default 900. |
