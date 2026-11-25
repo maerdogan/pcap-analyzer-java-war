@@ -77,6 +77,10 @@ A connection that has closed and stayed quiet for five minutes of capture time i
 
 HTTP/3 requests as rows in the request lists (QUIC connections and their stream counts are shown), the Python `serve` and `hash-password` commands (Tomcat serves the pages, and `set-password` replaces `hash-password`), and the Python version's job queue page (uploads through the web page are analyzed while the request waits; the REST API runs them as jobs).
 
+## Tests
+
+`mvn package` runs the JUnit tests, which need tshark: they use `PCAP_ANALYZER_TSHARK`, else `tshark` from the PATH, and the encryption tests need `PCAP_ANALYZER_WORKDIR` set to an empty folder whose name contains `vault-test`. GitHub Actions (`.github/workflows/test.yml`) runs them on every push with the tshark the WAR carries, fails when a test was skipped, and keeps the built WAR as an artifact for 14 days.
+
 ## Notes
 
 - Verified against tshark's own request counts on real captures, and on synthetic captures with HTTP/2, SMTP, FTP, SIP and RTP. GeoIP lookups and LDAP, Kerberos, SMB2, Kafka, DCERPC, MQTT and AMQP response times follow the Python logic but were not tried on real traffic.

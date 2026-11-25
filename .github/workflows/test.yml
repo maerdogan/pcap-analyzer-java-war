@@ -1,0 +1,44 @@
+name: Test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      # The tests run the tshark the WAR carries, so they check that copy too
+      - name: Unpack the bundled tshark
+        run: |
+          tar -xzf src/main/resources/tshark/tshark-linux-x86_64.tar.gz -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/tshark/bin/tshark" --version | head -1
+          echo "PCAP_ANALYZER_TSHARK=$RUNNER_TEMP/tshark/bin/tshark" >> "$GITHUB_ENV"
+          echo "WIRESHARK_DATA_DIR=$RUNNER_TEMP/tshark/share/wireshark" >> "$GITHUB_ENV"
+          # VaultTest sets up encryption in an empty work folder of its own
+          mkdir "$RUNNER_TEMP/vault-test"
+          echo "PCAP_ANALYZER_WORKDIR=$RUNNER_TEMP/vault-test" >> "$GITHUB_ENV"
+      - name: Build and test
+        run: mvn -B -ntp package
+      - name: Every test ran
+        run: |
+          # a test skipped because tshark was missing would pass silently
+          if grep -l 'skipped="[1-9]' target/surefire-reports/TEST-*.xml; then echo "::error::tests were skipped"; exit 1; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pcap-analyzer-war
+          path: target/pcap-analyzer.war
+          if-no-files-found: error
+          retention-days: 14
