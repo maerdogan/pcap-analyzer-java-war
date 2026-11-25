@@ -241,6 +241,34 @@ public final class Pages {
     }
 
     @SuppressWarnings("unchecked")
+    /** The "where the time went" table of a request, shown beside its row while the pointer is over the row. */
+    static String timeTip(Ctx c, Map<String, Object> phases) {
+        if (phases == null) return "";
+        List<Map<String, Object>> budget = new ArrayList<>();
+        phases.forEach((k, v) -> { Map<String, Object> m = new LinkedHashMap<>(); m.put("name", k); m.put("seconds", v); budget.add(m); });
+        return "<div class=\"wf-tip\" role=\"tooltip\"><h4>" + esc(c.t("Where the time went")) + "</h4>" + breakdown(c, budget) + "</div>";
+    }
+
+    static final int PAGE = 30;
+
+    /** Previous and next links for a list in pages of PAGE rows. Every other query parameter stays. */
+    static String pager(Ctx c, String id, Map<String, String[]> params, String name, int page, int pages, String anchor) {
+        if (pages <= 1) return "";
+        StringBuilder base = new StringBuilder();
+        params.forEach((k, v) -> { if (!k.equals(name) && v.length > 0 && !v[0].isBlank()) base.append(java.net.URLEncoder.encode(k, java.nio.charset.StandardCharsets.UTF_8)).append('=').append(java.net.URLEncoder.encode(v[0], java.nio.charset.StandardCharsets.UTF_8)).append('&'); });
+        String root = c.path() + "/a/" + id + "/inspect?" + base + name + "=";
+        StringBuilder sb = new StringBuilder("<nav class=\"pager pad\" aria-label=\"").append(esc(c.t("Page {n} of {m}", "n", page, "m", pages))).append("\">");
+        sb.append(page > 1 ? "<a href=\"" + root + (page - 1) + "#" + anchor + "\">" + esc(c.t("Previous")) + "</a>" : "<span class=\"off\">" + esc(c.t("Previous")) + "</span>");
+        sb.append("<span>").append(esc(c.t("Page {n} of {m}", "n", page, "m", pages))).append("</span>");
+        sb.append(page < pages ? "<a href=\"" + root + (page + 1) + "#" + anchor + "\">" + esc(c.t("Next")) + "</a>" : "<span class=\"off\">" + esc(c.t("Next")) + "</span>");
+        return sb.append("</nav>").toString();
+    }
+
+    static int pageOf(Map<String, String[]> params, String name, int pages) {
+        Integer n = Inspect.num(params, name);
+        return Math.max(1, Math.min(n == null ? 1 : n, Math.max(pages, 1)));
+    }
+
     static String waterfall(Ctx c, List<Map<String, Object>> rows) {
         double longest = rows.stream().mapToDouble(r -> Analysis.d(r.get("longest"))).max().orElse(0);
         StringBuilder sb = new StringBuilder("<ol class=\"waterfall\">\n");
@@ -255,7 +283,7 @@ public final class Pages {
             sb.append("<li>").append(status(c, t.get("status"))).append("<div class=\"wf-main\">").append(head).append("<p class=\"why\"><b>")
               .append(esc(Knowledge.topicLabel(cause, c.lang()))).append(".</b> ").append(esc(why)).append("</p></div><div class=\"wf-bar\"><div class=\"bar-fill\" style=\"width:")
               .append(String.format(Locale.ROOT, "%.1f", width)).append("%\">").append(strip(c, (Map<String, Object>) t.get("phases"))).append("</div></div><span class=\"took\">")
-              .append(Fmt.seconds(Analysis.dn(t.get("longest")))).append("</span></li>\n");
+              .append(Fmt.seconds(Analysis.dn(t.get("longest")))).append("</span>").append(timeTip(c, (Map<String, Object>) t.get("phases"))).append("</li>\n");
         }
         return sb.append("</ol>").toString();
     }
@@ -731,6 +759,27 @@ public final class Pages {
           .append(esc(c.t("Saves the filter as it was last applied."))).append("</p></details></div></section>");
         Map<String, Object> cs = (Map<String, Object>) inspected.get("connections"), rq = (Map<String, Object>) inspected.get("requests");
         if (((Number) cs.get("connections")).intValue() == 0) return sb.append("<p class=\"empty\">").append(esc(c.t("Nothing in this capture matches. Check the addresses, or clear a filter."))).append("</p>").toString();
+        // All traffic: every connection the filter above selects, most requests first, in pages
+        Inspect.Query fq = Inspect.query(params);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> k : conns) if (Inspect.connMatches(fq, k)) rows.add(k);
+        rows.sort((a, b) -> {
+            int ra = perStream.getOrDefault(((Number) a.get("stream")).intValue(), 0), rb = perStream.getOrDefault(((Number) b.get("stream")).intValue(), 0);
+            if (ra != rb) return Integer.compare(rb, ra);
+            return Integer.compare((int) Analysis.d(b.get("packets")), (int) Analysis.d(a.get("packets")));
+        });
+        int cPages = (rows.size() + PAGE - 1) / PAGE, cPage = pageOf(params, "conn_page", cPages);
+        sb.append("<section class=\"panel flush\" id=\"all-traffic\"><div class=\"section-head pad\"><h2>").append(esc(c.t("All traffic"))).append("</h2><p class=\"muted\">").append(esc(c.t("{n} connections", "n", rows.size())))
+          .append("</p></div><div class=\"table-wrap\"><table><thead><tr><th>").append(esc(c.t("Client"))).append("</th><th>").append(esc(c.t("Server"))).append("</th><th>").append(esc(c.t("Type")))
+          .append("</th><th class=\"num\">").append(esc(c.t("Requests"))).append("</th><th class=\"num\">").append(esc(c.t("Packets"))).append("</th><th class=\"num\">").append(esc(c.t("Duration"))).append("</th><th>").append(esc(c.t("Closed by"))).append("</th></tr></thead><tbody>");
+        for (Map<String, Object> k : rows.subList((cPage - 1) * PAGE, Math.min(rows.size(), cPage * PAGE))) {
+            String by = k.get("closed_by") == null ? "–" : String.valueOf(k.get("closed_by"));
+            sb.append("<tr><td><a href=\"").append(c.path()).append("/a/").append(id).append("/conn/").append(k.get("stream")).append("\">").append(esc(k.get("client_ip"))).append(":").append(esc(k.get("client_port"))).append("</a></td><td>")
+              .append(esc(k.get("server_ip"))).append(":").append(esc(k.get("server_port"))).append("</td><td>").append(esc(k.get("kind"))).append("</td><td class=\"num\">").append(perStream.getOrDefault(((Number) k.get("stream")).intValue(), 0))
+              .append("</td><td class=\"num\">").append((long) Analysis.d(k.get("packets"))).append("</td><td class=\"num\">").append(Fmt.seconds(Analysis.dn(k.get("duration")))).append("</td><td>")
+              .append(esc("–".equals(by) ? by : c.t(Character.toUpperCase(by.charAt(0)) + by.substring(1)))).append("</td></tr>");
+        }
+        sb.append("</tbody></table></div>").append(pager(c, id, params, "conn_page", cPage, cPages, "all-traffic")).append("</section>");
         if (((Number) rq.get("requests")).intValue() > 0) sb.append("<section class=\"hero\">").append(score(c, rq)).append(metrics(c, rq)).append("</section>");
         sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Summary"))).append("</h2><dl class=\"facts\">");
         facts(sb, c.t("TCP connections"), cs.get("connections")); facts(sb, c.t("Successful"), cs.get("ok")); facts(sb, c.t("Carrying HTTP"), cs.get("http")); facts(sb, c.t("TCP only"), cs.get("tcp_only"));
@@ -770,7 +819,10 @@ public final class Pages {
             sb.append("<button>").append(esc(c.t("Filter"))).append("</button></form>");
             sb.append("<p class=\"hint pad\">").append(esc(c.t("{n} requests match.", "n", inspected.get("slow_matched")))).append("</p>");
             if (slow.isEmpty()) sb.append("<p class=\"empty\">").append(esc(c.t("No request matches this filter."))).append("</p>");
-            else sb.append(waterfall(c, slow));
+            else {
+                int pages = (slow.size() + PAGE - 1) / PAGE, page = pageOf(params, "slow_page", pages);
+                sb.append(waterfall(c, slow.subList((page - 1) * PAGE, Math.min(slow.size(), page * PAGE)))).append(pager(c, id, params, "slow_page", page, pages, "slowest"));
+            }
             sb.append("</section>");
         }
         return sb.toString();

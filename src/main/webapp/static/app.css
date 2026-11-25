@@ -456,3 +456,14 @@ code.secret { font-size: 1rem; letter-spacing: .05em; }
 .side-sub > summary:hover { background: rgba(255, 255, 255, .06); color: #fff; }
 .side-sub > summary .icon { opacity: .8; }
 .side-group .side-sub > a { padding-left: 2.6rem; min-height: 34px; }
+
+/* Where the time went, shown beside a result while the pointer is over it */
+.waterfall li { position: relative; }
+.wf-tip { display: none; position: absolute; z-index: 20; right: 1.2rem; top: calc(100% - .4rem); width: min(26rem, calc(100% - 2.4rem)); padding: .7rem .9rem; background: var(--panel, #fff);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 8px 28px rgba(18, 29, 51, .22); pointer-events: none; }
+.wf-tip h4 { margin: 0 0 .4rem; font-size: .9rem; }
+.wf-tip .breakdown { width: 100%; }
+.waterfall li:hover > .wf-tip, .waterfall li:focus-within > .wf-tip { display: block; }
+@media (hover: none) { .wf-tip { display: none !important; } }
+.pager { display: flex; gap: 1rem; align-items: center; justify-content: flex-end; padding-block: .7rem; }
+.pager .off { color: var(--muted); opacity: .55; }

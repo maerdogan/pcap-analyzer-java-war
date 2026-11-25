@@ -205,7 +205,8 @@ public final class Inspect {
         out.put("urls", urls);
         List<Map<String, Object>> slowTxns = new ArrayList<>();
         for (Map<String, Object> t : txns) if (slowMatches(slow, t)) slowTxns.add(t);
-        out.put("slowest", Analysis.slowest(slowTxns, connOf));
+        boolean ranged = slow != null && (slow.minMs() != null || slow.maxMs() != null);
+        out.put("slowest", Analysis.slowest(slowTxns, connOf, ranged ? slowTxns.size() : Analysis.SLOWEST)); // a duration range lists every match
         out.put("slow_matched", slowTxns.size());
         return out;
     }
