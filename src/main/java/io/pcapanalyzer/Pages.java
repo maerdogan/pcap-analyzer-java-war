@@ -45,6 +45,9 @@ public final class Pages {
             Map.entry("compare", "<rect x=\"3\" y=\"4\" width=\"7\" height=\"16\" rx=\"1.5\"/><rect x=\"14\" y=\"4\" width=\"7\" height=\"16\" rx=\"1.5\"/>"),
             Map.entry("trend", "<path d=\"M3 17l6-6 4 4 8-8\"/><path d=\"M15 7h6v6\"/>"),
             Map.entry("guide", "<path d=\"M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z\"/><path d=\"M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z\"/>"),
+            Map.entry("security", "<path d=\"M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z\"/><path d=\"M9.5 12l1.8 1.8 3.5-3.6\"/>"),
+            Map.entry("users", "<circle cx=\"9\" cy=\"8\" r=\"3.5\"/><path d=\"M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5\"/><path d=\"M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c2 .7 3.2 2.4 3.6 5.2\"/>"),
+            Map.entry("password", "<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 10V7a4 4 0 0 1 8 0v3\"/>"),
             Map.entry("preferences", "<path d=\"M4 7h10M18 7h2M4 17h4M12 17h8\"/><circle cx=\"16\" cy=\"7\" r=\"2\"/><circle cx=\"10\" cy=\"17\" r=\"2\"/>"),
             Map.entry("stats", "<path d=\"M4 20h16M7 16v-5M12 16V6M17 16v-8\"/>"),
             Map.entry("menu", "<path d=\"M4 7h16M4 12h16M4 17h16\"/>"));
@@ -78,11 +81,21 @@ public final class Pages {
         sb.append("<body class=\"app\" data-words='").append(esc(words.toString()).replace("&quot;", "\"").replace("&#39;", "&apos;")).append("'>\n");
         sb.append("<a class=\"skip\" href=\"#main\">").append(esc(c.t("Skip to content"))).append("</a>\n");
         sb.append("<aside class=\"side\" id=\"side\">\n<a class=\"side-brand\" href=\"").append(p).append("/\" aria-label=\"pcap-analyzer\"><img src=\"").append(p)
-          .append("/static/brand/logo-on-dark.png\" alt=\"\" width=\"176\" height=\"64\"></a>\n<div class=\"side-scroll\">\n");
+          .append("/static/brand/logo-on-dark.png\" alt=\"\" width=\"196\" height=\"45\"></a>\n<div class=\"side-scroll\">\n");
         sb.append("<nav class=\"side-group\" aria-label=\"").append(esc(c.t("Main"))).append("\"><p class=\"side-label\" aria-hidden=\"true\">").append(esc(c.t("Main"))).append("</p>\n");
-        String[][] mainNav = {{"captures", "/", "Captures"}, {"compare", "/compare", "Compare"}, {"trend", "/trend", "Trend"}, {"guide", "/capture-guide", "Capture guide"}, {"preferences", "/preferences", "Preferences"}};
+        boolean admin = Users.can(Users.Role.ADMIN);
+        String[][] mainNav = {{"captures", "/", "Captures"}, {"compare", "/compare", "Compare"}, {"trend", "/trend", "Trend"}, {"guide", "/capture-guide", "Capture guide"}};
         for (String[] n : mainNav)
             sb.append("<a href=\"").append(p).append(n[1]).append("\"").append(section.equals(n[0]) ? " aria-current=\"page\"" : "").append(">").append(icon(n[0])).append("<span>").append(esc(c.t(n[2]))).append("</span></a>");
+        String[][] settingsNav = admin
+            ? new String[][] {{"preferences", "/preferences", "Preferences"}, {"users", "/users", "Users"}, {"security", "/security", "Encryption"}, {"password", "/password", "Password"}, {"audit", "/audit", "Activity log"}}
+            : new String[][] {{"password", "/password", "Password"}};
+        boolean inSettings = false;
+        for (String[] n : settingsNav) inSettings |= section.equals(n[0]);
+        sb.append("<details class=\"side-sub\"").append(inSettings ? " open" : "").append("><summary>").append(icon("preferences")).append("<span>").append(esc(c.t("Settings"))).append("</span></summary>");
+        for (String[] n : settingsNav)
+            sb.append("<a href=\"").append(p).append(n[1]).append("\"").append(section.equals(n[0]) ? " aria-current=\"page\"" : "").append("><span>").append(esc(c.t(n[2]))).append("</span></a>");
+        sb.append("</details>");
         sb.append("</nav>\n");
         sb.append(captureNav);
         if (!recent.isEmpty()) {
@@ -103,7 +116,10 @@ public final class Pages {
         for (String code : Knowledge.LANGUAGES)
             sb.append("<option value=\"").append(code).append("\"").append(code.equals(c.lang()) ? " selected" : "").append(">").append(Knowledge.LANGUAGE_NAMES.get(code)).append("</option>");
         sb.append("</select></label><noscript><button>").append(esc(c.t("Save"))).append("</button></noscript></form>\n</div></header>\n");
-        sb.append("<main class=\"page\" id=\"main\">").append(main).append("</main>\n</div>\n</body>\n</html>\n");
+        String notice = "";
+        if (Users.can(Users.Role.ADMIN) && !Vault.alerts().isEmpty() && !section.equals("security"))
+            notice = "<p class=\"warn\" role=\"alert\"><b>" + esc(c.t("{n} files were changed by hand in the data folder.", "n", Vault.alerts().size())) + "</b> <a href=\"" + p + "/security\">" + esc(c.t("See which")) + "</a></p>";
+        sb.append("<main class=\"page\" id=\"main\">").append(notice).append(main).append("</main>\n</div>\n</body>\n</html>\n");
         return sb.toString();
     }
 
@@ -153,12 +169,15 @@ public final class Pages {
                 sb.append("</div><dl class=\"tiles\"><div><dt>").append(esc(c.t("Size"))).append("</dt><dd>").append(Fmt.size((Number) m.get("size"))).append("</dd></div><div><dt>")
                   .append(esc(c.t("Connections"))).append("</dt><dd>").append(m.get("connections")).append("</dd></div><div><dt>").append(esc(c.t("Requests"))).append("</dt><dd>")
                   .append(m.get("transactions")).append("</dd></div></dl>");
-                sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf())
+                if (Boolean.TRUE.equals(m.get("_deletable"))) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf())
                   .append("\"><button class=\"link danger\" aria-label=\"").append(esc(c.t("Delete {name}", "name", m.get("filename")))).append("\">").append(esc(c.t("Delete"))).append("</button></form></li>\n");
             }
             sb.append("</ol>");
         }
-        sb.append("</section>\n<section class=\"panel\">\n<h2>").append(esc(c.t("Analyze a capture"))).append("</h2>\n");
+        sb.append("</section>\n");
+        if (!Users.can(Users.Role.ANALYST)) sb.append("<p class=\"hint\">").append(esc(c.t("Your role can open and export captures. Ask an admin to upload or delete them."))).append("</p>\n");
+        else {
+        sb.append("<section class=\"panel\">\n<h2>").append(esc(c.t("Analyze a capture"))).append("</h2>\n");
         sb.append("<form method=\"post\" action=\"").append(c.path()).append("/upload\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\">\n");
         sb.append("<label class=\"drop\"><span>").append(esc(c.t("Capture file, up to {n} MB (.cap, .pcap, .pcapng)", "n", maxMb))).append("</span><input type=\"file\" name=\"capture\" required></label>\n");
         sb.append("<details><summary>").append(esc(c.t("Add more parts of the same capture"))).append("</summary><div class=\"fields\"><label>").append(esc(c.t("More parts"))).append(" <input type=\"file\" name=\"more\" multiple></label></div><p class=\"hint\">")
@@ -175,6 +194,7 @@ public final class Pages {
         sb.append("<label class=\"wide\">").append(esc(c.t("Wireshark display filter"))).append(" ").append(DisplayFilters.select(c, "display_filter", "")).append("</label>");
         sb.append("<label class=\"wide\">").append(esc(c.t("Decode As"))).append(" <input name=\"decode_as\" spellcheck=\"false\" placeholder=\"tcp.port==9000,http; udp.port==4433,quic\"><span class=\"hint\">")
           .append(esc(c.t("Read a port as another protocol, as Wireshark's Decode As does. Separate rules with ;"))).append("</span></label></div></details>\n<button class=\"primary\">").append(esc(c.t("Analyze capture"))).append("</button>\n</form>\n</section>\n</div>\n");
+        }
         return sb.toString();
     }
 
@@ -297,7 +317,7 @@ public final class Pages {
         }
         sb.append("</table></div></details>");
         if (id.equals(c.baseline())) sb.append("<span class=\"status s2\">").append(esc(c.t("Baseline"))).append("</span>");
-        else sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/baseline\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><button>").append(esc(c.t("Set as baseline"))).append("</button></form>");
+        else if (Users.can(Users.Role.ANALYST)) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/baseline\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><button>").append(esc(c.t("Set as baseline"))).append("</button></form>");
         sb.append("<a class=\"button primary\" href=\"").append(c.path()).append("/a/").append(id).append("/inspect\">").append(esc(c.t("Inspect traffic"))).append("</a></div></div>\n");
         if (tab.equals("overview") && requests > 0) sb.append(score(c, http)).append(metrics(c, http));
         sb.append("</header>\n<div id=\"tab\">");
@@ -345,7 +365,7 @@ public final class Pages {
             }
             sb.append("</section>");
             if (requests > 0) sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Status codes"))).append("</h2>").append(chart(c, "statuses", id, "statuses", false, false)).append("</section>");
-            sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Case and notes"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/a/").append(id)
+            if (Users.can(Users.Role.ANALYST)) sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Case and notes"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/a/").append(id)
               .append("/notes\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><div class=\"fields\"><label>").append(esc(c.t("Case number")))
               .append(" <input id=\"case\" name=\"case\" maxlength=\"80\" value=\"").append(esc(notes.get("case"))).append("\"></label><label>").append(esc(c.t("Tags")))
               .append(" <input id=\"tags\" name=\"tags\" maxlength=\"200\" value=\"").append(esc(notes.get("tags"))).append("\"></label><label class=\"wide\">").append(esc(c.t("Note")))
@@ -418,6 +438,7 @@ public final class Pages {
         StringBuilder sb = new StringBuilder();
         sb.append(crumbs(c, new String[][] {{c.t("Captures"), c.path() + "/"}, {(String) meta.get("filename"), c.path() + "/a/" + id}, {c.t("Issues"), c.path() + "/a/" + id + "?tab=issues"}, {info[0], null}}));
         sb.append("<header class=\"hero\"><div class=\"hero-head\"><div><h1>").append(esc(info[0])).append("</h1><p class=\"muted\">").append(esc(info[1])).append("</p></div></div></header>");
+        sb.append(guidePanel(c, Knowledge.guide(info[2], null, c.lang())));
         List<Map<String, Object>> conns = (List<Map<String, Object>>) detail.get("connections"), txns = (List<Map<String, Object>>) detail.get("transactions");
         if (!conns.isEmpty()) {
             sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("Connections"))).append("</h2><div class=\"table-wrap\"><table><thead><tr><th>").append(esc(c.t("Client"))).append("</th><th>")
@@ -529,20 +550,39 @@ public final class Pages {
         return sb.append("</dl></section>").toString();
     }
 
-    public static String packetsFragment(Ctx c, List<String[]> rows) {
-        if (rows.isEmpty()) return "<p class=\"empty\">" + esc(c.t("No packets found.")) + "</p>";
-        StringBuilder sb = new StringBuilder("<div class=\"table-wrap\"><table><thead><tr><th class=\"num\">No.</th><th class=\"num\">").append(esc(c.t("Time"))).append("</th><th>").append(esc(c.t("Source")))
-                .append("</th><th>").append(esc(c.t("Destination"))).append("</th><th>").append(esc(c.t("Protocol"))).append("</th><th class=\"num\">").append(esc(c.t("Length"))).append("</th><th>Info</th></tr></thead><tbody>");
-        for (String[] r : rows) {
-            if (r.length < 9) continue;
-            sb.append("<tr><td class=\"num\">").append(esc(r[0])).append("</td><td class=\"num\">").append(esc(r[1])).append("</td><td>").append(esc(r[2].isEmpty() ? r[4] : r[2]))
-              .append("</td><td>").append(esc(r[3].isEmpty() ? r[5] : r[3])).append("</td><td>").append(esc(r[6])).append("</td><td class=\"num\">").append(esc(r[7])).append("</td><td>").append(esc(r[8])).append("</td></tr>");
+    /** Paket listesi parcasi (baglanti veya istek sayfasi icin), Python surumundeki _conn_packets.html ile ayni duzende. */
+    @SuppressWarnings("unchecked")
+    public static String packetsFragment(Ctx c, Map<String, Object> p) {
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) p.get("rows");
+        if (rows == null || rows.isEmpty()) return "<p class=\"empty\">" + esc(c.t("No packets match.")) + "</p>";
+        StringBuilder sb = new StringBuilder("<div class=\"table-wrap packets\"><table><thead><tr><th class=\"num\">").append(esc(c.t("Frame"))).append("</th><th class=\"num\">").append(esc(c.t("Time")))
+                .append("</th><th>").append(esc(c.t("Direction"))).append("</th><th>").append(esc(c.t("Flags"))).append("</th><th class=\"num\">Seq</th><th class=\"num\">Ack</th><th class=\"num\">")
+                .append(esc(c.t("Length"))).append("</th><th class=\"num\">").append(esc(c.t("Window"))).append("</th><th>").append(esc(c.t("Protocol"))).append("</th><th>").append(esc(c.t("Info"))).append("</th></tr></thead><tbody>");
+        for (Map<String, Object> r : rows) {
+            boolean fromClient = Boolean.TRUE.equals(r.get("from_client"));
+            List<String> flags = (List<String>) r.get("flags");
+            List<String> marks = (List<String>) r.get("marks");
+            sb.append("<tr class=\"").append(fromClient ? "from-client" : "from-server").append(marks.isEmpty() ? "" : " marked").append("\"><td class=\"num\">").append(esc(r.get("frame")))
+              .append("</td><td class=\"num\">").append(String.format(Locale.ROOT, "%.6f", ((Number) r.get("t")).doubleValue())).append("</td><td>")
+              .append(esc(c.t(fromClient ? "Client \u2192 server" : "Server \u2192 client"))).append("</td><td>").append(flags.isEmpty() ? "\u2013" : esc(String.join(", ", flags)))
+              .append("</td><td class=\"num\">").append(r.get("seq") == null ? "\u2013" : esc(r.get("seq"))).append("</td><td class=\"num\">").append(r.get("ack") == null ? "\u2013" : esc(r.get("ack")))
+              .append("</td><td class=\"num\">").append(esc(r.get("len"))).append("</td><td class=\"num\">").append(r.get("win") == null ? "\u2013" : esc(r.get("win")))
+              .append("</td><td>").append(esc(r.get("protocol"))).append("</td><td>");
+            for (String m : marks) sb.append("<span class=\"status s4\">").append(esc(c.t(m))).append("</span> ");
+            sb.append(esc(r.get("info"))).append("</td></tr>");
         }
-        return sb.append("</tbody></table></div>").toString();
+        sb.append("</tbody></table></div><dl class=\"legend pad\">");
+        for (Map<String, Object> x : (List<Map<String, Object>>) p.get("legend"))
+            sb.append("<div><dt>").append(esc(x.get("flag"))).append("</dt><dd>").append(esc(c.t((String) x.get("meaning")))).append("</dd></div>");
+        sb.append("<div><dt>Seq</dt><dd>").append(esc(c.t("where this packet's data starts in the sender's byte stream, counted from 0"))).append("</dd></div>")
+          .append("<div><dt>Ack</dt><dd>").append(esc(c.t("the next byte the sender expects from the other side"))).append("</dd></div></dl>");
+        if (Boolean.TRUE.equals(p.get("cut")))
+            sb.append("<p class=\"hint pad\">").append(esc(c.t("Only the first {n} packets are shown. Download the connection as PCAP to see all of it.", "n", p.get("limit")))).append("</p>");
+        return sb.toString();
     }
 
     @SuppressWarnings("unchecked")
-    public static String transactionPage(Ctx c, Map<String, Object> meta, Map<String, Object> t, Map<String, Object> conn, Map<String, Object> det) {
+    public static String transactionPage(Ctx c, Map<String, Object> meta, Map<String, Object> t, Map<String, Object> conn, Map<String, Object> det, boolean kept) {
         String id = (String) meta.get("id");
         String cause = (String) t.get("cause");
         Map<String, Object> facts = Analysis.facts(t, conn);
@@ -552,6 +592,7 @@ public final class Pages {
         sb.append("<header class=\"hero\"><div class=\"hero-head\"><div><h1>").append(status(c, t.get("status"))).append(' ').append(esc(t.get("method") + " " + t.get("uri"))).append("</h1><p class=\"muted\"><b>")
           .append(esc(Knowledge.topicLabel(cause, c.lang()))).append(".</b> ").append(esc(Knowledge.summary(cause, facts, c.lang()))).append("</p></div></div>");
         sb.append(metrics2(c, t)).append("</header>");
+        sb.append(guidePanel(c, Knowledge.guide(cause, facts, c.lang())));
         Map<String, Object> phases = (Map<String, Object>) t.get("phases");
         List<Map<String, Object>> budget = new ArrayList<>();
         phases.forEach((k, v) -> { Map<String, Object> m = new LinkedHashMap<>(); m.put("name", k); m.put("seconds", v); budget.add(m); });
@@ -575,6 +616,14 @@ public final class Pages {
         facts(sb, c.t("Request frame"), t.get("req_frame"));
         facts(sb, c.t("Response frame"), t.get("resp_frame") == null ? "–" : t.get("resp_frame"));
         sb.append("</dl></section></div>");
+        if (kept) {
+            // Bu istegin paketleri, kayitli yakalamadan sonradan okunur
+            sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("Packets of this request"))).append("</h2><p class=\"muted pad\">")
+              .append(esc(c.t("Every packet of this request in order: the connection setup when the request opened the connection, the request, the response and its acknowledgment.")))
+              .append(" <a href=\"").append(c.path()).append("/a/").append(id).append("/conn/").append(t.get("stream")).append("\">").append(esc(c.t("All packets of the connection")))
+              .append("</a></p><div id=\"txn-packets\" data-load=\"").append(c.path()).append("/a/").append(id).append("/txn/").append(t.get("id")).append("/packets\"><p class=\"empty\">")
+              .append(esc(c.t("Reading the packets again. A large capture can take a few minutes the first time."))).append("</p></div></section>");
+        }
         if (det != null) {
             String[][] blocks = {{"req_headers", "Request headers"}, {"req_body", "Request body"}, {"resp_headers", "Response headers"}, {"resp_body", "Response body"}};
             for (String[] b : blocks)
@@ -873,6 +922,41 @@ public final class Pages {
               .append("</dt><dd>").append(esc(p.hides())).append("</dd></div></dl></section>");
         }
         return sb.append("<p class=\"hint\">").append(esc(c.t("To measure NetScaler, capture on both sides at the same time and open the two captures in Compare."))).append(" <a href=\"").append(c.path()).append("/compare\">").append(esc(c.t("Compare"))).append("</a></p>").toString();
+    }
+
+    private static final java.util.regex.Pattern SENTENCE_END = java.util.regex.Pattern.compile("(?<=[.!?])\\s+(?=[A-ZÇĞİÖŞÜÁÉÍÓÚÑÄ0-9`(])");
+
+    /** The explanation of a result: one line of meaning, what this capture shows and three checks. The rest opens on demand. */
+    @SuppressWarnings("unchecked")
+    static String guidePanel(Ctx c, Map<String, Object> g) {
+        if (g == null) return "";
+        Map<String, String> h = (Map<String, String>) g.get("headings");
+        String[] parts = SENTENCE_END.split((String) g.get("meaning"), 2);
+        List<String> evidence = (List<String>) g.get("evidence"), checks = (List<String>) g.get("checks");
+        List<Map<String, String>> sources = (List<Map<String, String>>) g.get("sources");
+        String misread = (String) g.get("misread");
+        StringBuilder sb = new StringBuilder("<section class=\"panel guide\"><h2>").append(esc(h.get("title"))).append("</h2><div class=\"guide-cols\"><div><h3>").append(esc(h.get("meaning"))).append("</h3><p>").append(esc(parts[0])).append("</p>");
+        if (parts.length > 1) sb.append("<details class=\"more\"><summary>").append(esc(c.t("More"))).append("</summary><p>").append(esc(parts[1])).append("</p></details>");
+        sb.append("</div>");
+        if (!evidence.isEmpty()) {
+            sb.append("<div><h3>").append(esc(h.get("evidence"))).append("</h3><ul>");
+            for (String line : evidence) sb.append("<li>").append(rich(line)).append("</li>");
+            sb.append("</ul></div>");
+        }
+        sb.append("<div><h3>").append(esc(h.get("checks"))).append("</h3><ul>");
+        for (int i = 0; i < Math.min(3, checks.size()); i++) sb.append("<li>").append(rich(checks.get(i))).append("</li>");
+        sb.append("</ul>");
+        if (checks.size() > 3) {
+            sb.append("<details class=\"more\"><summary>").append(esc(c.t("{n} more checks", "n", checks.size() - 3))).append("</summary><ul>");
+            for (String line : checks.subList(3, checks.size())) sb.append("<li>").append(rich(line)).append("</li>");
+            sb.append("</ul></details>");
+        }
+        sb.append("</div></div><details class=\"more notes\"><summary>").append(esc((misread != null ? h.get("misread") + " · " : "") + h.get("sources"))).append("</summary>");
+        if (misread != null) sb.append("<p>").append(rich(misread)).append("</p>");
+        sb.append("<ul class=\"sources\">");
+        for (Map<String, String> s : sources)
+            sb.append("<li><a href=\"").append(esc(s.get("url"))).append("\" rel=\"noreferrer noopener\">").append(esc(s.get("title"))).append("</a>: ").append(esc(s.get("where"))).append("</li>");
+        return sb.append("</ul><p class=\"hint\">").append(esc(h.get("origin"))).append("</p></details></section>").toString();
     }
 
     static String rich(String line) {
@@ -1307,8 +1391,138 @@ public final class Pages {
                 + "</td><td class=\"num\">" + Fmt.seconds(Analysis.dn(s.get("p95"))) + "</td><td class=\"num\">" + Fmt.seconds(Analysis.dn(s.get("max"))) + "</td>";
     }
 
+    /** Admins add users, put them in a group, give them a role, set a new password and delete them. */
+    public static String usersPage(Ctx c, List<Map<String, Object>> users, List<Map<String, Object>> groupRows, String message, String error) {
+        List<String> groups = new ArrayList<>();
+        for (Map<String, Object> g : groupRows) groups.add(String.valueOf(g.get("name")));
+        StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>").append(esc(c.t("Users"))).append("</h1><p class=\"muted\">")
+            .append(esc(c.t("Each user sees only the captures uploaded in their group. Admins see every group. Viewers open and export; analysts also upload, delete and write notes; admins also manage users, preferences and tokens.")))
+            .append("</p></div></header>");
+        if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
+        if (message != null) sb.append("<p class=\"ok\" role=\"status\">").append(esc(message)).append("</p>");
+        String csrf = "<input type=\"hidden\" name=\"csrf_token\" value=\"" + c.csrf() + "\">";
+        java.util.function.BiFunction<String, String, String> groupSelect = (cur, form) -> {
+            StringBuilder o = new StringBuilder("<select name=\"group\" required").append(form == null ? "" : " form=\"" + form + "\"").append(" aria-label=\"").append(esc(c.t("Group"))).append("\">");
+            if (cur == null || !groups.contains(cur)) o.append("<option value=\"\" selected disabled>").append(esc(c.t("Choose a group"))).append("</option>");
+            for (String g : groups) o.append("<option value=\"").append(esc(g)).append("\"").append(g.equals(cur) ? " selected" : "").append(">").append(esc(g)).append("</option>");
+            return o.append("</select>").toString();
+        };
+        // groups first: a user needs one
+        sb.append("<section class=\"panel flush\"><h2 class=\"pad\">").append(esc(c.t("Groups"))).append("</h2>")
+          .append("<form method=\"post\" action=\"").append(c.path()).append("/users/groups\" class=\"inline pad\">").append(csrf)
+          .append("<label>").append(esc(c.t("Group name"))).append(" <input name=\"group_name\" required pattern=\"[a-z0-9][a-z0-9._-]{1,39}\" maxlength=\"40\" placeholder=\"network-team\"></label>")
+          .append("<label class=\"grow\">").append(esc(c.t("Description"))).append(" <input name=\"description\" maxlength=\"120\"></label>")
+          .append("<button class=\"primary\">").append(esc(c.t("Add group"))).append("</button></form>");
+        if (groupRows.isEmpty()) sb.append("<p class=\"empty\">").append(esc(c.t("No groups yet. Add one before adding users."))).append("</p>");
+        else {
+            sb.append("<div class=\"table-wrap\"><table class=\"users-table\"><thead><tr><th>").append(esc(c.t("Group"))).append("</th><th>").append(esc(c.t("Description"))).append("</th><th></th><th class=\"num\">")
+              .append(esc(c.t("Users"))).append("</th><th></th></tr></thead><tbody>");
+            for (Map<String, Object> g : groupRows) {
+                String gn = String.valueOf(g.get("name")), gf = "g-" + gn.replaceAll("[^a-z0-9]", "_"), ga = c.path() + "/users/groups/" + gn;
+                int members = ((Number) g.get("users")).intValue();
+                sb.append("<tr><td><b>").append(esc(gn)).append("</b><form id=\"").append(gf).append("\" method=\"post\" action=\"").append(ga).append("/update\">").append(csrf).append("</form></td>")
+                  .append("<td><input form=\"").append(gf).append("\" name=\"description\" maxlength=\"120\" aria-label=\"").append(esc(c.t("Description"))).append("\" value=\"").append(esc(g.get("description"))).append("\"></td>")
+                  .append("<td><button form=\"").append(gf).append("\">").append(esc(c.t("Save"))).append("</button></td><td class=\"num\">").append(members).append("</td><td>");
+                if (members == 0) sb.append("<form method=\"post\" action=\"").append(ga).append("/delete\">").append(csrf).append("<button class=\"link danger\" aria-label=\"").append(esc(c.t("Delete {name}", "name", gn))).append("\">").append(esc(c.t("Delete"))).append("</button></form>");
+                else sb.append("<span class=\"muted\" title=\"").append(esc(c.t("Move its users to another group first."))).append("\">").append(esc(c.t("In use"))).append("</span>");
+                sb.append("</td></tr>");
+            }
+            sb.append("</tbody></table></div>");
+        }
+        sb.append("</section>");
+        java.util.function.Function<String, String> roles = cur -> {
+            StringBuilder o = new StringBuilder("<select name=\"role\">");
+            for (Users.Role r : Users.Role.values()) o.append("<option value=\"").append(r.key()).append("\"").append(r.key().equals(cur) ? " selected" : "").append(">").append(esc(c.t(roleLabel(r)))).append("</option>");
+            return o.append("</select>").toString();
+        };
+        Map<String, Object> ls = Ldap.settings();
+        boolean ldapOn = Ldap.configured();
+        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Add a user"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/users\">").append(csrf).append("<div class=\"fields\">")
+          .append("<label>").append(esc(c.t("Sign-in"))).append(" <select name=\"source\" data-source><option value=\"local\">").append(esc(c.t("Local password"))).append("</option>")
+          .append(ldapOn ? "<option value=\"ldap\">LDAP</option>" : "").append("</select></label>")
+          .append("<label>").append(esc(c.t("User name"))).append(" <input name=\"name\" required pattern=\"[a-z0-9][a-z0-9._-]{1,39}\" maxlength=\"40\" autocomplete=\"off\"></label>")
+          .append("<label>").append(esc(c.t("Full name"))).append(" <input name=\"full_name\" required maxlength=\"80\" autocomplete=\"off\"></label>")
+          .append("<label>").append(esc(c.t("Employee ID"))).append(" <input name=\"employee_id\" maxlength=\"30\" autocomplete=\"off\"></label>")          .append("<label>").append(esc(c.t("Group"))).append(" ").append(groupSelect.apply(null, null)).append("</label>")
+          .append("<label>").append(esc(c.t("Role"))).append(" ").append(roles.apply("viewer")).append("</label>")
+          .append("<label data-local>").append(esc(c.t("First password"))).append(" <input type=\"password\" name=\"password\" required minlength=\"").append(Passwords.MIN_LENGTH).append("\" autocomplete=\"new-password\"></label></div>")
+          .append("<p class=\"hint\">").append(esc(c.t("A local user must choose a new password at the first sign-in. An LDAP user signs in with the directory password; group and role still come from here."))).append("</p>")
+          .append("<button class=\"primary\">").append(esc(c.t("Add"))).append("</button></form></section>");
+        sb.append("<section class=\"panel flush\"><div class=\"table-wrap\"><table class=\"users-table\"><thead><tr>");
+        for (String h : new String[] {"User name", "Full name", "Employee ID", "Group", "Role", "", "New password", ""}) sb.append("<th>").append(h.isEmpty() ? "" : esc(c.t(h))).append("</th>");
+        sb.append("</tr></thead><tbody>");
+        sb.append("<tr><td><b>").append(esc(Settings.adminUser())).append("</b></td><td colspan=\"2\" class=\"muted\">").append(esc(c.t("Setup admin from the server settings. It cannot be changed or deleted here.")))
+          .append("</td><td>").append(esc(c.t("All groups"))).append("</td><td>").append(esc(c.t("Admin"))).append("</td><td colspan=\"3\"></td></tr>");
+        for (Map<String, Object> u : users) {
+            String n = String.valueOf(u.get("name"));
+            String act = c.path() + "/users/" + n, f = "u-" + n.replaceAll("[^a-z0-9]", "_"), fp = f + "-pw";
+            // each cell's input belongs to the row's form through the form attribute, so the fields sit in their own columns
+            sb.append("<tr><td><b>").append(esc(n)).append("</b> <span class=\"tag\">").append("ldap".equals(u.get("source")) ? "LDAP" : esc(c.t("Local"))).append("</span>")
+              .append(Boolean.TRUE.equals(u.get("must_change")) ? " <span class=\"tag warn-tag\">" + esc(c.t("Must change password")) + "</span>" : "").append("<form id=\"").append(f).append("\" method=\"post\" action=\"").append(act).append("/update\">").append(csrf).append("</form>")
+              .append("<form id=\"").append(fp).append("\" method=\"post\" action=\"").append(act).append("/password\">").append(csrf).append("</form></td>")
+              .append("<td><input form=\"").append(f).append("\" name=\"full_name\" required maxlength=\"80\" aria-label=\"").append(esc(c.t("Full name"))).append("\" value=\"").append(esc(u.get("full_name"))).append("\"></td>")
+              .append("<td><input form=\"").append(f).append("\" name=\"employee_id\" maxlength=\"30\" aria-label=\"").append(esc(c.t("Employee ID"))).append("\" value=\"").append(esc(u.get("employee_id"))).append("\"></td>")
+              .append("<td>").append(groupSelect.apply(String.valueOf(u.get("group")), f)).append("</td>")
+              .append("<td>").append(roles.apply(String.valueOf(u.get("role"))).replace("<select ", "<select form=\"" + f + "\" aria-label=\"" + esc(c.t("Role")) + "\" ")).append("</td>")
+              .append("<td><button form=\"").append(f).append("\">").append(esc(c.t("Save"))).append("</button></td>")
+              .append("ldap".equals(u.get("source")) ? "<td class=\"muted\">" + esc(c.t("In the directory")) + "</td>" : "<td class=\"pw\"><input form=\"" + fp).append("\" type=\"password\" name=\"password\" required minlength=\"").append(Passwords.MIN_LENGTH).append("\" autocomplete=\"new-password\" aria-label=\"").append(esc(c.t("New password"))).append("\">")
+              .append("<button form=\"").append(fp).append("\">").append(esc(c.t("Set"))).append("</button></td>")
+              .append("<td><form method=\"post\" action=\"").append(act).append("/delete\">").append(csrf).append("<button class=\"link danger\" aria-label=\"").append(esc(c.t("Delete {name}", "name", n))).append("\">")
+              .append(esc(c.t("Delete"))).append("</button></form></td></tr>");
+        }
+        sb.append("</tbody></table></div></section>");
+        sb.append("<section class=\"panel\"><h2>LDAP</h2><p class=\"muted\">").append(esc(c.t("Users marked LDAP sign in with their directory password. The service account only finds them; it needs read access.")))
+          .append("</p><form method=\"post\" action=\"").append(c.path()).append("/users/ldap\">").append(csrf).append("<div class=\"fields\">")
+          .append("<label class=\"wide\">").append(esc(c.t("Server address"))).append(" <input name=\"url\" placeholder=\"ldaps://dc.example.com:636\" value=\"").append(esc(ls.get("url"))).append("\"></label>")
+          .append("<label>").append(esc(c.t("Service account DN"))).append(" <input name=\"bind_dn\" placeholder=\"cn=svc-pcap,ou=service,dc=example,dc=com\" value=\"").append(esc(ls.get("bind_dn"))).append("\"></label>")
+          .append("<label>").append(esc(c.t("Service account password"))).append(" <input type=\"password\" name=\"bind_password\" autocomplete=\"new-password\" placeholder=\"")
+          .append(esc(String.valueOf(ls.get("bind_password")).isEmpty() ? "" : c.t("saved; leave empty to keep"))).append("\"></label>")
+          .append("<label>").append(esc(c.t("Base DN"))).append(" <input name=\"base_dn\" placeholder=\"dc=example,dc=com\" value=\"").append(esc(ls.get("base_dn"))).append("\"></label>")
+          .append("<label>").append(esc(c.t("User filter"))).append(" <input name=\"user_filter\" placeholder=\"(sAMAccountName={0})\" value=\"").append(esc(ls.get("user_filter"))).append("\"></label></div>")
+          .append("<button class=\"primary\">").append(esc(c.t("Save"))).append("</button></form>");
+        if (ldapOn) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/users/ldap/test\" class=\"inline\">").append(csrf)
+          .append("<label>").append(esc(c.t("Find a user (optional)"))).append(" <input name=\"test_user\" autocomplete=\"off\"></label><button>").append(esc(c.t("Test the connection"))).append("</button></form>");
+        sb.append("</section>");
+        return sb.toString();
+    }
+
+    static String roleLabel(Users.Role r) { return switch (r) { case VIEWER -> "Viewer"; case ANALYST -> "Analyst"; case ADMIN -> "Admin"; }; }
+
+    /** The admin's view of the encryption: the algorithms, the master key (shown on request), changing it, and notices about changed files. */
+    public static String securityPage(Ctx c, String message, String error) {
+        StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>").append(esc(c.t("Encryption"))).append("</h1><p class=\"muted\">")
+            .append(esc(c.t("Captures, results, users, settings and the activity log are kept encrypted in the data folder. A copy of the folder cannot be opened without the master key and the setup admin's password.")))
+            .append("</p></div></header>");
+        if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
+        if (message != null) sb.append("<p class=\"ok\" role=\"status\">").append(esc(message)).append("</p>");
+        String csrf = "<input type=\"hidden\" name=\"csrf_token\" value=\"" + c.csrf() + "\">";
+        List<Map<String, Object>> alerts = Vault.alerts();
+        if (!alerts.isEmpty()) {
+            sb.append("<section class=\"panel flush alert-panel\"><h2 class=\"pad\">").append(esc(c.t("Files changed by hand"))).append("</h2><div class=\"table-wrap\"><table><thead><tr><th>")
+              .append(esc(c.t("Time"))).append("</th><th>").append(esc(c.t("File"))).append("</th><th>").append(esc(c.t("Problem"))).append("</th></tr></thead><tbody>");
+            for (Map<String, Object> a : alerts) sb.append("<tr><td>").append(Fmt.when(Analysis.d(a.get("time")))).append("</td><td><code>").append(esc(a.get("file"))).append("</code></td><td>").append(esc(a.get("reason"))).append("</td></tr>");
+            sb.append("</tbody></table></div><form method=\"post\" action=\"").append(c.path()).append("/security/alerts/clear\" class=\"pad\">").append(csrf).append("<button>").append(esc(c.t("Mark as seen"))).append("</button></form></section>");
+        }
+        boolean set = Vault.isSetUp();
+        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Master key"))).append("</h2>");
+        if (!set) sb.append("<p class=\"warn\">").append(esc(c.t("Set the master key to finish the setup. Every file in the data folder is then encrypted, and users can sign in."))).append("</p>");
+        else if (Vault.masterKey() != null)
+            sb.append("<p>").append(esc(c.t("Current master key"))).append(": <code class=\"secret\" data-secret=\"").append(esc(Vault.masterKey())).append("\">••••••••••••••••</code> <button type=\"button\" class=\"link\" data-reveal>")
+              .append(esc(c.t("Show"))).append("</button></p>");
+        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/security\">").append(csrf).append("<div class=\"fields\">")
+          .append("<label>").append(esc(c.t(set ? "New master key" : "Master key"))).append(" <input type=\"password\" name=\"master\" required minlength=\"16\" maxlength=\"16\" autocomplete=\"off\" spellcheck=\"false\"></label>")
+          .append("<label>").append(esc(c.t("Again"))).append(" <input type=\"password\" name=\"again\" required minlength=\"16\" maxlength=\"16\" autocomplete=\"off\" spellcheck=\"false\"></label></div>")
+          .append("<p class=\"hint\">").append(esc(c.t("Exactly 16 characters, with at least one sign that is not a letter or digit, such as ! # % or *. Keep a copy somewhere safe."))).append("</p>")
+          .append("<button class=\"primary\">").append(esc(c.t(set ? "Change the master key" : "Set the master key and encrypt"))).append("</button></form></section>");
+        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("How the data is encrypted"))).append("</h2><ul class=\"plain\">");
+        for (String line : Vault.ALGORITHM.split("\\. ")) sb.append("<li>").append(esc(line.endsWith(".") ? line : line + ".")).append("</li>");
+        sb.append("</ul><p class=\"hint\">").append(esc(c.t("After a restart nothing can be read until the setup admin signs in. Until then other users see a waiting page."))).append("</p></section>");
+        return sb.toString();
+    }
+
     public static String passwordPage(Ctx c, String error) {
-        StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>" + esc(c.t("Change the password")) + "</h1><p class=\"muted\">" + esc(c.t("This is the password everyone with the login shares.")) + "</p></div></header>");
+        StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>" + esc(c.t("Change the password")) + "</h1><p class=\"muted\">" + esc(Users.current() != null && !Users.current().setupAdmin() ? c.t("Your own password. Others are not affected.") : c.t("This is the password everyone with the login shares.")) + "</p></div></header>");
+        if (Passwords.mustChange() && Users.current() != null && Users.current().setupAdmin())
+            sb.append("<p class=\"warn\" role=\"alert\">").append(esc(c.t("This is the first sign-in with admin / admin. Choose a new password to continue."))).append("</p>");
         if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
         sb.append("<section class=\"panel\"><form method=\"post\" action=\"").append(c.path()).append("/password\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><div class=\"fields\"><label>")
           .append(esc(c.t("Current password"))).append(" <input type=\"password\" name=\"current\" required autocomplete=\"current-password\"></label><label>").append(esc(c.t("New password")))

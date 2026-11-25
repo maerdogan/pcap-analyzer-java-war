@@ -9,7 +9,10 @@ public final class Settings {
 
     public static Path workdir() {
         String v = System.getenv("PCAP_ANALYZER_WORKDIR");
-        return Path.of(v != null && !v.isBlank() ? v : System.getProperty("java.io.tmpdir") + "/pcap-analyzer");
+        if (v != null && !v.isBlank()) return Path.of(v);
+        // next to the server that runs the app: Tomcat's instance folder, else the folder the JVM was started in
+        String base = System.getProperty("catalina.base");
+        return Path.of(base != null && !base.isBlank() ? base : System.getProperty("user.dir"), "data");
     }
 
     /** tshark: PCAP_ANALYZER_TSHARK when set, else the copy bundled in the WAR (Linux x86_64), else tshark from PATH. */

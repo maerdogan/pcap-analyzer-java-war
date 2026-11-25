@@ -10,7 +10,8 @@ import java.security.SecureRandom;
 import java.util.HexFormat;
 import java.util.Map;
 
-/** The password of the shared login. A password set in the app is kept as a salted hash and replaces PCAP_ANALYZER_ADMIN_PASSWORD. */
+/** The setup admin's password, kept as a salted hash in password.json. PCAP_ANALYZER_ADMIN_PASSWORD is read once, at the first start, and moved there;
+ *  without it the first sign-in is admin / admin and a new password must be chosen at once. */
 public final class Passwords {
     public static final int MIN_LENGTH = 12;
     private static final int ITERATIONS = 210_000;
@@ -18,7 +19,7 @@ public final class Passwords {
 
     private Passwords() {}
 
-    private static byte[] hash(String password, byte[] salt) {
+    static byte[] hash(String password, byte[] salt) {
         try {
             return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(new PBEKeySpec(password.toCharArray(), salt, ITERATIONS, 256)).getEncoded();
         } catch (Exception e) { throw new IllegalStateException(e); }
@@ -34,16 +35,30 @@ public final class Passwords {
         }
     }
 
-    /** True when a password is set, in the app or in the environment. */
-    public static boolean configured() { return stored() != null || !Settings.adminPassword().isEmpty(); }
+    /** Sign-in is always possible: with no password saved and none in the environment, the first sign-in is admin / admin. */
+    public static boolean configured() { return true; }
+
+    /** True while the setup admin still has the first-run password admin / admin and must choose a new one before anything else. */
+    public static boolean mustChange() { return !Vault.isSetUp() && stored() == null && Settings.adminPassword().isEmpty(); }
 
     public static boolean matches(String candidate) {
+        // once the vault exists, the admin password is what opens it; there is no other copy
+        if (Vault.isSetUp()) return Vault.unlock(candidate);
         Map<String, Object> s = stored();
         if (s == null) {
             String env = Settings.adminPassword();
-            return !env.isEmpty() && MessageDigest.isEqual(candidate.getBytes(StandardCharsets.UTF_8), env.getBytes(StandardCharsets.UTF_8));
+            if (env.isEmpty()) return MessageDigest.isEqual(candidate.getBytes(StandardCharsets.UTF_8), "admin".getBytes(StandardCharsets.UTF_8));
+            return MessageDigest.isEqual(candidate.getBytes(StandardCharsets.UTF_8), env.getBytes(StandardCharsets.UTF_8));
         }
         return MessageDigest.isEqual(hash(candidate, HexFormat.of().parseHex((String) s.get("salt"))), HexFormat.of().parseHex((String) s.get("hash")));
+    }
+
+    /** Moves PCAP_ANALYZER_ADMIN_PASSWORD into password.json as a hash, once, so the plain password can be removed from the server settings.
+     *  Returns true when it moved it. From then on the variable is ignored. */
+    public static boolean adoptEnvironment() throws IOException {
+        if (Vault.isSetUp() || stored() != null || Settings.adminPassword().isEmpty()) return false;
+        save(Settings.adminPassword());
+        return true;
     }
 
     public static void save(String password) throws IOException {
@@ -54,6 +69,7 @@ public final class Passwords {
         Files.createDirectories(Settings.workdir());
         Path tmp = Settings.workdir().resolve("password.json.tmp");
         Files.writeString(tmp, Json.write(m), StandardCharsets.UTF_8);
-        Files.move(tmp, Settings.workdir().resolve("password.json"), StandardCopyOption.ATOMIC_MOVE);
+        try { Files.setPosixFilePermissions(tmp, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")); } catch (UnsupportedOperationException ignored) { }
+        Files.move(tmp, Settings.workdir().resolve("password.json"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 }

@@ -21,7 +21,8 @@ public final class Records {
     @SuppressWarnings("unchecked")
     private static Object read(String name) {
         try {
-            return Json.parse(Files.readString(Settings.workdir().resolve(name), StandardCharsets.UTF_8));
+            Path p = Settings.workdir().resolve(name);
+            return Files.exists(p) ? Json.parse(Vault.readText(p)) : null;
         } catch (IOException | RuntimeException e) {
             return null;
         }
@@ -29,9 +30,7 @@ public final class Records {
 
     private static void write(String name, Object data) throws IOException {
         Files.createDirectories(Settings.workdir());
-        Path tmp = Settings.workdir().resolve(name + "." + Long.toHexString(RANDOM.nextLong()) + ".tmp");
-        Files.writeString(tmp, Json.write(data), StandardCharsets.UTF_8);
-        Files.move(tmp, Settings.workdir().resolve(name), StandardCopyOption.ATOMIC_MOVE);
+        Vault.writeText(Settings.workdir().resolve(name), Json.write(data));
     }
 
     // ---- limits
@@ -80,7 +79,9 @@ public final class Records {
 
     public static String baseline() {
         try {
-            String v = Files.readString(Settings.workdir().resolve("baseline.txt"), StandardCharsets.UTF_8).strip();
+            Path p = Settings.workdir().resolve("baseline.txt");
+            if (!Files.exists(p)) return null;
+            String v = Vault.readText(p).strip();
             return v.matches("[0-9a-f]{16}") ? v : null;
         } catch (IOException e) {
             return null;
@@ -89,27 +90,55 @@ public final class Records {
 
     public static void setBaseline(String id) throws IOException {
         Files.createDirectories(Settings.workdir());
-        Files.writeString(Settings.workdir().resolve("baseline.txt"), id, StandardCharsets.UTF_8);
+        Vault.writeText(Settings.workdir().resolve("baseline.txt"), id);
     }
 
     // ---- activity log
 
+    /** The activity log. Its name says nothing about it, and every line is encrypted. */
+    static Path auditFile() { return Settings.workdir().resolve(".idx0"); }
+
+    /** Encrypts the lines written before the vault existed: those of an old audit.log and the plain ones of the hidden log. Called when the vault is set up. */
+    static void hideAudit() throws IOException {
+        synchronized (LOCK) {
+            List<String> lines = new ArrayList<>();
+            Path old = Settings.workdir().resolve("audit.log");
+            if (Files.exists(old)) lines.addAll(Files.readAllLines(old, StandardCharsets.UTF_8));
+            if (Files.exists(auditFile())) lines.addAll(Files.readAllLines(auditFile(), StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (String l : lines) {
+                if (l.isBlank()) continue;
+                sb.append(l.startsWith("{") ? Base64.getEncoder().encodeToString(Vault.sealBytes(l.getBytes(StandardCharsets.UTF_8))) : l).append('\n');
+            }
+            Path tmp = Settings.workdir().resolve(".idx0.tmp");
+            Files.writeString(tmp, sb.toString(), StandardCharsets.UTF_8);
+            Vault.private600(tmp);
+            Files.move(tmp, auditFile(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            Files.deleteIfExists(old);
+        }
+    }
+
     public static void audit(String event, String client, String detail) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("time", System.currentTimeMillis() / 1000.0); m.put("event", event); m.put("client", client);
+        Users.Current who = Users.current();
+        m.put("user", who == null ? "" : who.name());
         m.put("detail", detail == null ? "" : detail.length() > 300 ? detail.substring(0, 300) : detail);
         synchronized (LOCK) {
             try {
                 Files.createDirectories(Settings.workdir());
-                Files.writeString(Settings.workdir().resolve("audit.log"), Json.write(m) + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                // each line is its own encrypted record, so lines can be appended without the vault being open
+                String line = Vault.isSetUp() ? Base64.getEncoder().encodeToString(Vault.sealBytes(Json.write(m).getBytes(StandardCharsets.UTF_8))) : Json.write(m);
+                Files.writeString(auditFile(), line + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                Vault.private600(auditFile());
                 trimAudit();
             } catch (IOException ignored) { }
         }
     }
 
     private static void trimAudit() throws IOException {
-        Path p = Settings.workdir().resolve("audit.log");
-        if (Files.size(p) < 4_000_000) return;
+        Path p = auditFile();
+        if (Files.size(p) < 8_000_000) return;
         List<String> lines = Files.readAllLines(p, StandardCharsets.UTF_8);
         if (lines.size() > AUDIT_KEEP) Files.write(p, lines.subList(lines.size() - AUDIT_KEEP, lines.size()), StandardCharsets.UTF_8);
     }
@@ -119,10 +148,13 @@ public final class Records {
         List<Map<String, Object>> out = new ArrayList<>();
         try {
             List<String> lines;
-            synchronized (LOCK) { lines = Files.readAllLines(Settings.workdir().resolve("audit.log"), StandardCharsets.UTF_8); }
+            synchronized (LOCK) { lines = Files.exists(auditFile()) ? Files.readAllLines(auditFile(), StandardCharsets.UTF_8) : List.of(); }
             for (int i = lines.size() - 1; i >= 0 && out.size() < limit; i--) {
                 try {
-                    Map<String, Object> r = (Map<String, Object>) Json.parse(lines.get(i));
+                    String l = lines.get(i);
+                    if (!l.startsWith("{")) l = new String(Vault.openBytes(Base64.getDecoder().decode(l), auditFile()), StandardCharsets.UTF_8);
+                    else if (Vault.isSetUp()) { Vault.alert(auditFile(), "A plain line was added to the activity log by hand."); continue; }
+                    Map<String, Object> r = (Map<String, Object>) Json.parse(l);
                     if (event == null || event.equals(r.get("event"))) out.add(r);
                 } catch (RuntimeException ignored) { }
             }

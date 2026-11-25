@@ -22,7 +22,6 @@ Put the settings in `$CATALINA_HOME/bin/setenv.sh`:
 export JAVA_HOME=/path/to/java17
 export CATALINA_OPTS="-Xms256m -Xmx1g"
 export PCAP_ANALYZER_WORKDIR=/var/lib/pcap-analyzer
-export PCAP_ANALYZER_ADMIN_PASSWORD='choose-one'   # required until the password is changed in the app
 ```
 
 Sign in with HTTP Basic as `admin`. Open `/pcap-analyzer/`.
@@ -31,15 +30,17 @@ Sign in with HTTP Basic as `admin`. Open `/pcap-analyzer/`.
 
 | Variable | Meaning |
 |---|---|
-| `PCAP_ANALYZER_WORKDIR` | Where analyses are kept. Default: the Java temp folder. |
-| `PCAP_ANALYZER_ADMIN_USER`, `PCAP_ANALYZER_ADMIN_PASSWORD` | The shared login. A password set under Preferences replaces the variable. |
+| `PCAP_ANALYZER_WORKDIR` | Where analyses, users and settings are kept, all encrypted. Default: `data` in Tomcat's instance folder (`catalina.base`). |
+| `PCAP_ANALYZER_ADMIN_USER` | Name of the setup admin. Default `admin`. |
+| `PCAP_ANALYZER_ADMIN_PASSWORD` | Not needed. Without it the first sign-in is `admin` / `admin` and a new password must be chosen at once. If set, it is saved as a hash in `password.json` at the first start and ignored from then on, so remove it from the settings afterwards. |
 | `PCAP_ANALYZER_TSHARK` | Path of tshark, when not the bundled one. Not needed on Linux x86_64. |
-| `PCAP_ANALYZER_TTL_DAYS` | Days an analysis is kept. Default 7. |
+| `PCAP_ANALYZER_TTL_DAYS` | An analysis nobody opened for this many days is deleted, checked every hour. Default 7. |
 | `PCAP_ANALYZER_KEEP_CAPTURE` | `0` deletes the capture after the analysis. Packets, graphs, followed streams, services and objects then are not available. |
 | `PCAP_ANALYZER_TIMEOUT_S` | Time limit of one tshark run. Default 900. |
 | `PCAP_ANALYZER_GEOIP_DIR` | Folder with MaxMind GeoLite2 Country and ASN files. |
 | `PCAP_ANALYZER_REQUEST_ID_HEADER` | Header that follows a request through proxies. Default `x-request-id`. |
 | `PCAP_ANALYZER_CLIENT_IP_HEADER` | Headers that carry the original client, comma separated, tried in order. Default `x-forwarded-for,x-real-ip,true-client-ip,x-client-ip,client-ip,forwarded`. A NetScaler adds its own with *Client IP header* on the service. |
+| — | Users, groups and roles are managed by the admin under **Users**. They are kept in `users.json` in the work folder, passwords as PBKDF2 hashes. Each user sees only the captures uploaded in their group; admins see all. |
 | `PCAP_ANALYZER_HEALTH_PATHS` | More health check paths, comma separated, besides `/healthz`, `/ready`, `/actuator/health` and the like. Requests to them are marked as health checks. |
 
 ## REST API

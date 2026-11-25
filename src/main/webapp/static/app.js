@@ -338,3 +338,15 @@
   });
   addEventListener("resize", () => chart.resize());
 })();
+
+// Encryption page: show the master key on request. Users page: an LDAP user needs no first password.
+document.querySelectorAll("[data-reveal]").forEach((b) => b.addEventListener("click", () => {
+  const code = b.previousElementSibling, shown = code.textContent === code.dataset.secret;
+  code.textContent = shown ? "\u2022".repeat(16) : code.dataset.secret;
+  b.textContent = shown ? b.dataset.show || b.textContent : (b.dataset.show = b.textContent, "\u2715");
+}));
+document.querySelectorAll("[data-source]").forEach((s) => {
+  const form = s.form, pw = form.querySelector("[data-local]");
+  const sync = () => { const local = s.value === "local"; pw.hidden = !local; pw.querySelector("input").required = local; };
+  s.addEventListener("change", sync); sync();
+});
