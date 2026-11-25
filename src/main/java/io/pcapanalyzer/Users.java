@@ -1,11 +1,7 @@
 package io.pcapanalyzer;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.nio.file.attribute.PosixFilePermissions;
-import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -29,7 +25,6 @@ public final class Users {
 
     static final Pattern NAME = Pattern.compile("[a-z0-9][a-z0-9._-]{1,39}");
     private static final ThreadLocal<Current> CURRENT = new ThreadLocal<>();
-    private static final SecureRandom RANDOM = new SecureRandom();
     private static final Object LOCK = new Object();
 
     private Users() {}
@@ -43,18 +38,13 @@ public final class Users {
     private static Path file() { return Settings.workdir().resolve("users.json"); }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> file(boolean fresh) {
-        try {
-            if (!Files.exists(file())) return new LinkedHashMap<>();
-            Object o = Json.parse(Vault.readText(file()));
-            if (o instanceof Map<?, ?> m) return new LinkedHashMap<>((Map<String, Object>) m);
-        } catch (IOException | RuntimeException ignored) { }
-        return new LinkedHashMap<>();
+    private static Map<String, Object> content() {
+        return Vault.readJson(file()) instanceof Map<?, ?> m ? new LinkedHashMap<>((Map<String, Object>) m) : new LinkedHashMap<>();
     }
 
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> section(String key) {
-        Object l = file(true).get(key);
+        Object l = content().get(key);
         return l instanceof List<?> ? new ArrayList<>((List<Map<String, Object>>) l) : new ArrayList<>();
     }
 
@@ -63,7 +53,7 @@ public final class Users {
 
     /** Writes one section of users.json, keeping the other. */
     private static void write(String key, List<Map<String, Object>> rows) throws IOException {
-        Map<String, Object> all = file(true);
+        Map<String, Object> all = content();
         all.put(key, rows);
         all.putIfAbsent("users", new ArrayList<>()); all.putIfAbsent("groups", new ArrayList<>());
         Vault.writeText(file(), Json.write(all));
@@ -92,8 +82,7 @@ public final class Users {
             boolean ok;
             if ("ldap".equals(u.get("source"))) ok = Ldap.authenticate(name, password);
             else {
-                byte[] want = HexFormat.of().parseHex(String.valueOf(u.get("hash")));
-                ok = MessageDigest.isEqual(want, Passwords.hash(password, HexFormat.of().parseHex(String.valueOf(u.get("salt")))));
+                ok = Passwords.verify(u, password);
             }
             return ok ? new Current(name, role, false, String.valueOf(u.getOrDefault("group", "")), Boolean.TRUE.equals(u.get("must_change"))) : null;
         }
@@ -112,12 +101,7 @@ public final class Users {
         return null;
     }
 
-    private static Map<String, Object> hashed(Map<String, Object> u, String password) {
-        byte[] salt = new byte[16];
-        RANDOM.nextBytes(salt);
-        u.put("salt", HexFormat.of().formatHex(salt)); u.put("hash", HexFormat.of().formatHex(Passwords.hash(password, salt)));
-        return u;
-    }
+    private static void hashed(Map<String, Object> u, String password) { Passwords.hashInto(u, password); }
 
     /** The groups an admin has made: name, description and how many users are in each, sorted by name. */
     public static List<Map<String, Object>> groupList() {

@@ -11,7 +11,6 @@ public final class Inspect {
         boolean empty() { return text == null && status == null && minMs == null && maxMs == null; }
     }
 
-    static final List<String> SLOW_FIELDS = List.of("slow_q", "slow_status", "slow_min_ms", "slow_max_ms");
     static final List<String> STATUS_CLASSES = List.of("2xx", "3xx", "4xx", "5xx", "none");
 
     private Inspect() {}
@@ -61,8 +60,7 @@ public final class Inspect {
             for (Map<String, Object> t : e.getValue()) {
                 Double tot = Analysis.dn(t.get("total"));
                 if (tot != null) totals.add(tot);
-                Integer st = Analysis.statusOf(t);
-                if (st == null || st == 0 || st >= 500) failed++;
+                if (Analysis.unansweredOr5xx(t)) failed++;
                 if (t.get("phases") instanceof Map<?, ?> m) for (String name : Analysis.PHASES) if (m.get(name) instanceof Number n) ph.merge(name, n.doubleValue(), Double::sum);
             }
             Collections.sort(totals);
@@ -85,8 +83,8 @@ public final class Inspect {
         java.util.function.BiConsumer<String, Object> add = (k, v) -> { if (v instanceof Number n) { double[] a = sum.computeIfAbsent(k, z -> new double[2]); a[0] += n.doubleValue(); a[1]++; } };
         Set<Integer> seenConn = new HashSet<>();
         for (Map<String, Object> x : g) {
-            Map<String, Object> cn = connOf.get(((Number) x.get("stream")).intValue());
-            if (cn != null && seenConn.add(((Number) cn.get("stream")).intValue())) { add.accept("rtt_client", cn.get("rtt_client")); add.accept("rtt_server", cn.get("rtt_server")); }
+            Map<String, Object> cn = connOf.get(Analysis.streamOf(x));
+            if (cn != null && seenConn.add(Analysis.streamOf(cn))) { add.accept("rtt_client", cn.get("rtt_client")); add.accept("rtt_server", cn.get("rtt_server")); }
             if (x.get("phases") instanceof Map<?, ?> ph) for (String name : Analysis.PHASES) add.accept(name, ph.get(name));
             add.accept("upstream_time", x.get("upstream_time")); add.accept("gateway_time", x.get("gateway_time"));
         }
@@ -136,10 +134,10 @@ public final class Inspect {
     public static Map<String, Object> filtered(Query q, Map<String, Object> result) {
         Set<Integer> keep = new HashSet<>();
         List<Map<String, Object>> conns = new ArrayList<>();
-        for (Map<String, Object> c : (List<Map<String, Object>>) result.get("connections")) if (connMatches(q, c)) { conns.add(c); keep.add(((Number) c.get("stream")).intValue()); }
+        for (Map<String, Object> c : (List<Map<String, Object>>) result.get("connections")) if (connMatches(q, c)) { conns.add(c); keep.add(Analysis.streamOf(c)); }
         List<Map<String, Object>> txns = new ArrayList<>();
         for (Map<String, Object> x : (List<Map<String, Object>>) result.get("transactions")) {
-            if (!keep.contains(((Number) x.get("stream")).intValue())) continue;
+            if (!keep.contains(Analysis.streamOf(x))) continue;
             if (q.url() != null && !String.valueOf(x.get("uri")).toLowerCase().contains(q.url().toLowerCase())) continue;
             if (q.start() != null && Analysis.d(x.get("req_start")) < q.start()) continue;
             if (q.end() != null && Analysis.d(x.get("req_start")) > q.end()) continue;
@@ -155,27 +153,14 @@ public final class Inspect {
         return out;
     }
 
-    @SuppressWarnings("unchecked")
     public static Map<String, Object> run(Query q, Map<String, Object> result) { return run(q, result, null); }
 
     @SuppressWarnings("unchecked")
     public static Map<String, Object> run(Query q, Map<String, Object> result, Slow slow) {
-        List<Map<String, Object>> conns = new ArrayList<>(), all = (List<Map<String, Object>>) result.get("connections");
+        Map<String, Object> f = filtered(q, result);
+        List<Map<String, Object>> conns = (List<Map<String, Object>>) f.get("connections"), txns = (List<Map<String, Object>>) f.get("transactions");
         Map<Integer, Map<String, Object>> connOf = new HashMap<>();
-        for (Map<String, Object> c : all) if (connMatches(q, c)) { conns.add(c); connOf.put(((Number) c.get("stream")).intValue(), c); }
-        List<Map<String, Object>> txns = new ArrayList<>();
-        for (Map<String, Object> x : (List<Map<String, Object>>) result.get("transactions")) {
-            if (!connOf.containsKey(((Number) x.get("stream")).intValue())) continue;
-            if (q.url() != null && !String.valueOf(x.get("uri")).toLowerCase().contains(q.url().toLowerCase())) continue;
-            if (q.start() != null && Analysis.d(x.get("req_start")) < q.start()) continue;
-            if (q.end() != null && Analysis.d(x.get("req_start")) > q.end()) continue;
-            if (q.minSize() != null) {
-                double rq = Analysis.d(x.get("req_bytes")), rs = Analysis.d(x.get("resp_bytes"));
-                double size = switch (q.sizeOf()) { case "request" -> rq; case "response" -> rs; case "packet" -> Math.max(rq, rs); default -> rq + rs; };
-                if (size <= q.minSize()) continue;
-            }
-            txns.add(x);
-        }
+        for (Map<String, Object> c : conns) connOf.put(Analysis.streamOf(c), c);
         long ok = 0, http = 0, tcpOnly = 0;
         double connect = 0, rtt = 0;
         int nc = 0, nr = 0;

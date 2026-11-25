@@ -29,6 +29,9 @@ public final class Analysis {
 
 
     static Integer statusOf(Map<String, Object> x) { return x.get("status") instanceof Number n ? n.intValue() : null; }
+    /** No answer, or a 5xx: what counts as failed for retries and for a URL over time. */
+    static boolean unansweredOr5xx(Map<String, Object> x) { Integer st = statusOf(x); return st == null || st == 0 || st >= 500; }
+
     static Integer streamOf(Map<String, Object> x) { return ((Number) x.get("stream")).intValue(); }
 
     static double d(Object o) { return o instanceof Number n ? n.doubleValue() : 0.0; }
@@ -55,8 +58,7 @@ public final class Analysis {
             int attempt = 1;
             Map<String, Object> first = g.get(0), prev = first;
             for (Map<String, Object> t : g.subList(1, g.size())) {
-                Integer status = statusOf(prev);
-                boolean failed = status == null || status == 0 || status >= 500;
+                boolean failed = unansweredOr5xx(prev);
                 double prevEnd = prev.get("resp_end") != null ? d(prev.get("resp_end")) : d(prev.get("req_end"));
                 if (!failed || prevEnd > d(t.get("req_start"))) continue;
                 t.put("attempt", ++attempt); t.put("retry_of", prev.get("id"));

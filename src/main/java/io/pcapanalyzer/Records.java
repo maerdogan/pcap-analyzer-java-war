@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13,20 +12,11 @@ import java.util.regex.Pattern;
 public final class Records {
     public static final String TOKEN_PREFIX = "pat_";
     private static final int AUDIT_KEEP = 10_000;
-    private static final SecureRandom RANDOM = new SecureRandom();
     private static final Object LOCK = new Object();
 
     private Records() {}
 
-    @SuppressWarnings("unchecked")
-    private static Object read(String name) {
-        try {
-            Path p = Settings.workdir().resolve(name);
-            return Files.exists(p) ? Json.parse(Vault.readText(p)) : null;
-        } catch (IOException | RuntimeException e) {
-            return null;
-        }
-    }
+    private static Object read(String name) { return Vault.readJson(Settings.workdir().resolve(name)); }
 
     private static void write(String name, Object data) throws IOException {
         Files.createDirectories(Settings.workdir());
@@ -170,36 +160,37 @@ public final class Records {
         } catch (Exception e) { throw new IllegalStateException(e); }
     }
 
+    /** A list file such as tokens.json or filters.json. */
     @SuppressWarnings("unchecked")
-    public static List<Map<String, Object>> tokens() {
-        Object o = read("tokens.json");
+    private static List<Map<String, Object>> list(String file) {
+        Object o = read(file);
         return o instanceof List ? (List<Map<String, Object>>) o : new ArrayList<>();
     }
 
+    private static void removeById(String file, String id) throws IOException {
+        synchronized (LOCK) {
+            List<Map<String, Object>> all = list(file);
+            all.removeIf(t -> id.equals(t.get("id")));
+            write(file, all);
+        }
+    }
+
+    public static List<Map<String, Object>> tokens() { return list("tokens.json"); }
+
     /** Creates a token and returns it. Only its hash is kept. */
     public static String createToken(String name) throws IOException {
-        byte[] raw = new byte[24];
-        RANDOM.nextBytes(raw);
-        String token = TOKEN_PREFIX + HexFormat.of().formatHex(raw);
-        byte[] idb = new byte[4];
-        RANDOM.nextBytes(idb);
+        String token = TOKEN_PREFIX + Settings.randomHex(24);
         synchronized (LOCK) {
             List<Map<String, Object>> all = tokens();
             Map<String, Object> t = new LinkedHashMap<>();
-            t.put("id", HexFormat.of().formatHex(idb)); t.put("name", name); t.put("created", System.currentTimeMillis() / 1000.0); t.put("hash", sha(token));
+            t.put("id", Settings.randomHex(4)); t.put("name", name); t.put("created", System.currentTimeMillis() / 1000.0); t.put("hash", sha(token));
             all.add(t);
             write("tokens.json", all);
         }
         return token;
     }
 
-    public static void revokeToken(String id) throws IOException {
-        synchronized (LOCK) {
-            List<Map<String, Object>> all = tokens();
-            all.removeIf(t -> id.equals(t.get("id")));
-            write("tokens.json", all);
-        }
-    }
+    public static void revokeToken(String id) throws IOException { removeById("tokens.json", id); }
 
     public static boolean validToken(String token) {
         if (token == null || !token.startsWith(TOKEN_PREFIX) || token.length() > 100) return false;
@@ -213,30 +204,19 @@ public final class Records {
 
     public static final List<String> FILTER_FIELDS = List.of("src", "src_port", "dst", "port", "kind", "url", "min_size", "size_of");
 
-    @SuppressWarnings("unchecked")
-    public static List<Map<String, Object>> filters() {
-        Object o = read("filters.json");
-        return o instanceof List ? (List<Map<String, Object>>) o : new ArrayList<>();
-    }
+    public static List<Map<String, Object>> filters() { return list("filters.json"); }
 
     public static void addFilter(String name, Map<String, String> values) throws IOException {
-        byte[] idb = new byte[4];
-        RANDOM.nextBytes(idb);
         synchronized (LOCK) {
             List<Map<String, Object>> all = filters();
             Map<String, Object> f = new LinkedHashMap<>();
-            f.put("id", HexFormat.of().formatHex(idb)); f.put("name", name);
+            f.put("id", Settings.randomHex(4)); f.put("name", name);
             for (String k : FILTER_FIELDS) f.put(k, values.getOrDefault(k, ""));
             all.add(f);
             write("filters.json", all);
         }
     }
 
-    public static void removeFilter(String id) throws IOException {
-        synchronized (LOCK) {
-            List<Map<String, Object>> all = filters();
-            all.removeIf(f -> id.equals(f.get("id")));
-            write("filters.json", all);
-        }
+    public static void removeFilter(String id) throws IOException { removeById("filters.json", id);
     }
 }

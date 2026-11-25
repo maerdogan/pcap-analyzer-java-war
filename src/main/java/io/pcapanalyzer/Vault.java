@@ -174,6 +174,11 @@ final class Vault {
         try (InputStream in = Files.newInputStream(file)) { return Arrays.equals(in.readNBytes(4), MAGIC); } catch (IOException e) { return false; }
     }
 
+    /** A JSON file read through the vault; null when it is missing or cannot be read. */
+    static Object readJson(Path file) {
+        try { return Files.exists(file) ? Json.parse(readText(file)) : null; } catch (IOException | RuntimeException e) { return null; }
+    }
+
     /** Text of a file. A plain file is read as it is only before the vault is set up; afterwards it is a changed file. */
     static String readText(Path file) throws IOException {
         try (InputStream in = in(file)) { return new String(in.readAllBytes(), StandardCharsets.UTF_8); }

@@ -7,7 +7,6 @@ import javax.naming.directory.InitialDirContext;
 import javax.naming.directory.SearchControls;
 import javax.naming.directory.SearchResult;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
@@ -26,9 +25,7 @@ final class Ldap {
 
     @SuppressWarnings("unchecked")
     static Map<String, Object> settings() {
-        try {
-            if (Files.exists(file()) && Json.parse(Vault.readText(file())) instanceof Map<?, ?> m) return new LinkedHashMap<>((Map<String, Object>) m);
-        } catch (IOException | RuntimeException ignored) { }
+        if (Vault.readJson(file()) instanceof Map<?, ?> m) return new LinkedHashMap<>((Map<String, Object>) m);
         Map<String, Object> d = new LinkedHashMap<>();
         d.put("url", ""); d.put("bind_dn", ""); d.put("bind_password", ""); d.put("base_dn", ""); d.put("user_filter", "(uid={0})");
         return d;

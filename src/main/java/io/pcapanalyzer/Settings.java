@@ -7,6 +7,15 @@ public final class Settings {
     public static final long MAX_UPLOAD = 1L << 30;
     private Settings() {}
 
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
+    /** Random bytes as lowercase hex: ids of analyses, tokens and saved filters. */
+    static String randomHex(int bytes) {
+        byte[] b = new byte[bytes];
+        RANDOM.nextBytes(b);
+        return java.util.HexFormat.of().formatHex(b);
+    }
+
     public static Path workdir() {
         String v = System.getenv("PCAP_ANALYZER_WORKDIR");
         if (v != null && !v.isBlank()) return Path.of(v);

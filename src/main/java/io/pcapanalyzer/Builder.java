@@ -109,6 +109,9 @@ public final class Builder {
         return i < 0 ? v : v.substring(i + 1);
     }
 
+    /** The last IPv4 address of a side ("src" or "dst"), else the IPv6 one. */
+    private static String ip(Map<String, String> p, String side) { return Optional.ofNullable(last(p, "ip." + side)).orElse(last(p, "ipv6." + side)); }
+
     static Long toLong(String v) {
         if (v == null || v.isEmpty()) return null;
         try {
@@ -142,8 +145,7 @@ public final class Builder {
         tcp++;
         int sid = sidL.intValue();
         int frame = Integer.parseInt(p.get("frame.number"));
-        String srcIp = Optional.ofNullable(last(p, "ip.src")).orElse(last(p, "ipv6.src"));
-        String dstIp = Optional.ofNullable(last(p, "ip.dst")).orElse(last(p, "ipv6.dst"));
+        String srcIp = ip(p, "src"), dstIp = ip(p, "dst");
         String src = srcIp + ":" + p.get("tcp.srcport"), dst = dstIp + ":" + p.get("tcp.dstport");
         if (finishedSids.contains(sid)) return; // a packet after the connection was finished and freed
         Stream s = streams.computeIfAbsent(sid, k -> { Stream n = new Stream(); n.sid = sid; n.a = src; n.b = dst; return n; });
@@ -333,7 +335,7 @@ public final class Builder {
 
     private void issue(Map<String, String> p, double t, String kind, String detail) {
         if (packetIssues.size() >= MAX_PACKET_ISSUES) return;
-        String src = Optional.ofNullable(last(p, "ip.src")).orElse(last(p, "ipv6.src")), dst = Optional.ofNullable(last(p, "ip.dst")).orElse(last(p, "ipv6.dst"));
+        String src = ip(p, "src"), dst = ip(p, "dst");
         packetIssues.add(new Object[] {Integer.parseInt(p.get("frame.number")), t, kind, detail, src, dst});
     }
 

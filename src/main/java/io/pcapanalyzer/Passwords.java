@@ -35,9 +35,6 @@ public final class Passwords {
         }
     }
 
-    /** Sign-in is always possible: with no password saved and none in the environment, the first sign-in is admin / admin. */
-    public static boolean configured() { return true; }
-
     /** True while the setup admin still has the first-run password admin / admin and must choose a new one before anything else. */
     public static boolean mustChange() { return !Vault.isSetUp() && stored() == null && Settings.adminPassword().isEmpty(); }
 
@@ -50,7 +47,19 @@ public final class Passwords {
             if (env.isEmpty()) return MessageDigest.isEqual(candidate.getBytes(StandardCharsets.UTF_8), "admin".getBytes(StandardCharsets.UTF_8));
             return MessageDigest.isEqual(candidate.getBytes(StandardCharsets.UTF_8), env.getBytes(StandardCharsets.UTF_8));
         }
-        return MessageDigest.isEqual(hash(candidate, HexFormat.of().parseHex((String) s.get("salt"))), HexFormat.of().parseHex((String) s.get("hash")));
+        return verify(s, candidate);
+    }
+
+    /** Puts a new random salt and the password's hash into m, as hex "salt" and "hash". */
+    static void hashInto(Map<String, Object> m, String password) {
+        byte[] salt = new byte[16];
+        RANDOM.nextBytes(salt);
+        m.put("salt", HexFormat.of().formatHex(salt)); m.put("hash", HexFormat.of().formatHex(hash(password, salt)));
+    }
+
+    /** True when the password matches the "salt" and "hash" in m. */
+    static boolean verify(Map<String, Object> m, String password) {
+        return MessageDigest.isEqual(hash(password, HexFormat.of().parseHex(String.valueOf(m.get("salt")))), HexFormat.of().parseHex(String.valueOf(m.get("hash"))));
     }
 
     /** Moves PCAP_ANALYZER_ADMIN_PASSWORD into password.json as a hash, once, so the plain password can be removed from the server settings.
@@ -62,14 +71,12 @@ public final class Passwords {
     }
 
     public static void save(String password) throws IOException {
-        byte[] salt = new byte[16];
-        RANDOM.nextBytes(salt);
         Map<String, Object> m = new java.util.LinkedHashMap<>();
-        m.put("salt", HexFormat.of().formatHex(salt)); m.put("hash", HexFormat.of().formatHex(hash(password, salt)));
+        hashInto(m, password);
         Files.createDirectories(Settings.workdir());
         Path tmp = Settings.workdir().resolve("password.json.tmp");
         Files.writeString(tmp, Json.write(m), StandardCharsets.UTF_8);
-        try { Files.setPosixFilePermissions(tmp, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")); } catch (UnsupportedOperationException ignored) { }
+        Vault.private600(tmp);
         Files.move(tmp, Settings.workdir().resolve("password.json"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 }

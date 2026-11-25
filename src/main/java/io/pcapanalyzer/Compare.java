@@ -56,10 +56,10 @@ public final class Compare {
     @SuppressWarnings("unchecked")
     static List<Map<String, Object>> filtered(Map<String, Object> result, Inspect.Query q) {
         Set<Integer> streams = new HashSet<>();
-        for (Map<String, Object> c : (List<Map<String, Object>>) result.get("connections")) if (Inspect.connMatches(q, c)) streams.add(((Number) c.get("stream")).intValue());
+        for (Map<String, Object> c : (List<Map<String, Object>>) result.get("connections")) if (Inspect.connMatches(q, c)) streams.add(Analysis.streamOf(c));
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> x : (List<Map<String, Object>>) result.get("transactions")) {
-            if (!streams.contains(((Number) x.get("stream")).intValue())) continue;
+            if (!streams.contains(Analysis.streamOf(x))) continue;
             if (q.url() != null && !String.valueOf(x.get("uri")).toLowerCase().contains(q.url().toLowerCase())) continue;
             out.add(x);
         }

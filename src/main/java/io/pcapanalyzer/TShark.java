@@ -47,6 +47,19 @@ public final class TShark {
         return b;
     }
 
+    /** A daemon thread that kills the process when it runs longer than the limit. Interrupt it once the process is done. */
+    private static Thread killAfter(Process p, long seconds) {
+        Thread t = new Thread(() -> { try { if (!p.waitFor(seconds, TimeUnit.SECONDS)) p.destroyForcibly(); } catch (InterruptedException ignored) { } });
+        t.setDaemon(true);
+        t.start();
+        return t;
+    }
+
+    /** Waits for the process; past the limit it is killed and the run fails. */
+    private static void awaitOrKill(Process p, long seconds, String what) throws InterruptedException, TsharkException {
+        if (!p.waitFor(seconds, TimeUnit.SECONDS)) { p.destroyForcibly(); throw new TsharkException(what + " took too long"); }
+    }
+
     /** Feeds the capture to tshark's standard input: the capture stays where it is, and no copy fills /tmp. A reader that stops early simply ends the feed. */
     static Process pump(Process p, Path capture) {
         Thread t = new Thread(() -> {
@@ -88,7 +101,7 @@ public final class TShark {
     /** With an RSA private key as well as, or instead of, a key log, and with Decode As rules such as tcp.port==9000,http. */
     public void read(Path capture, Path keylog, Path rsaKey, List<String> decodeAs, String filter, long timeoutSeconds, Consumer<Map<String, String>> sink) throws TsharkException {
         // Ubuntu's AppArmor profile stops tshark from reading most paths, so it reads a private copy under /tmp.
-        Path copy = null, keyCopy = null, rsaCopy = null;
+        Path keyCopy = null, rsaCopy = null;
         try {
             if (keylog != null) {
                 keyCopy = Files.createTempFile(Path.of("/tmp"), "pcap-analyzer-key-", ".log");
@@ -102,7 +115,6 @@ public final class TShark {
         } catch (IOException e) {
             throw new TsharkException("capture could not be read: " + e.getMessage());
         } finally {
-            if (copy != null) try { Files.deleteIfExists(copy); } catch (IOException ignored) { }
             if (keyCopy != null) try { Files.deleteIfExists(keyCopy); } catch (IOException ignored) { }
             if (rsaCopy != null) try { Files.deleteIfExists(rsaCopy); } catch (IOException ignored) { }
         }
@@ -115,7 +127,6 @@ public final class TShark {
 
     /** With {@code all}, a field that occurs several times in a packet gives all values, joined by the unit separator. {@code extra} are further tshark options. */
     public List<String[]> query(Path capture, String filter, List<String> fields, int limit, long timeoutSeconds, boolean all, List<String> extra) throws TsharkException {
-        Path copy = null;
         try {
             List<String> cmd = new ArrayList<>(List.of(binary, "-n", "-r", "-", "-o", "http.desegment_body:FALSE", "-o", "http.desegment_headers:FALSE",
                     "-o", "tcp.desegment_tcp_streams:TRUE", "-T", "fields", "-E", "separator=/t", "-E", "quote=n", "-E", all ? "occurrence=a" : "occurrence=f", "-E", "aggregator=" + AGG));
@@ -123,13 +134,7 @@ public final class TShark {
             if (filter != null && !filter.isBlank()) { cmd.add("-Y"); cmd.add(filter); }
             for (String f : fields) { cmd.add("-e"); cmd.add(f); }
             Process p = pump(pb(cmd).redirectError(ProcessBuilder.Redirect.DISCARD).start(), capture);
-            Thread killer = null;
-            if (timeoutSeconds > 0) {
-                final Process proc = p;
-                killer = new Thread(() -> { try { if (!proc.waitFor(timeoutSeconds, TimeUnit.SECONDS)) proc.destroyForcibly(); } catch (InterruptedException ignored) { } });
-                killer.setDaemon(true);
-                killer.start();
-            }
+            Thread killer = timeoutSeconds > 0 ? killAfter(p, timeoutSeconds) : null;
             List<String[]> rows = new ArrayList<>();
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8), 1 << 16)) {
                 String line;
@@ -140,27 +145,20 @@ public final class TShark {
             return rows;
         } catch (IOException e) {
             throw new TsharkException("tshark could not be run: " + e.getMessage());
-        } finally {
-            if (copy != null) try { Files.deleteIfExists(copy); } catch (IOException ignored) { }
         }
     }
 
     /** The text of one TCP stream, as Wireshark's Follow TCP Stream shows it (ASCII, at most 400 KB). */
     public String follow(Path capture, int stream, long timeoutSeconds) throws TsharkException {
-        Path copy = null;
         try {
             Process p = pump(pb(binary, "-n", "-r", "-", "-q", "-z", "follow,tcp,ascii," + stream).redirectError(ProcessBuilder.Redirect.DISCARD).start(), capture);
-            Thread killer = new Thread(() -> { try { if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) p.destroyForcibly(); } catch (InterruptedException ignored) { } });
-            killer.setDaemon(true);
-            killer.start();
+            Thread killer = killAfter(p, timeoutSeconds);
             byte[] data = p.getInputStream().readNBytes(400_000);
             p.destroy();
             killer.interrupt();
             return new String(data, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new TsharkException("tshark could not be run: " + e.getMessage());
-        } finally {
-            if (copy != null) try { Files.deleteIfExists(copy); } catch (IOException ignored) { }
         }
     }
 
@@ -175,7 +173,7 @@ public final class TShark {
             for (Path c : copies) cmd.add(c.toString());
             Process pr = new ProcessBuilder(cmd).redirectErrorStream(true).start();
             String msg = new String(pr.getInputStream().readNBytes(4000), StandardCharsets.UTF_8);
-            if (!pr.waitFor(timeoutSeconds, TimeUnit.SECONDS)) { pr.destroyForcibly(); throw new TsharkException("mergecap took too long"); }
+            awaitOrKill(pr, timeoutSeconds, "mergecap");
             if (pr.exitValue() != 0) throw new TsharkException(msg.strip().isEmpty() ? "mergecap could not join the files" : msg.strip().replaceAll(" ?\"?/\\S*\"?", ""));
             Files.copy(merged, out, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException | InterruptedException e) {
@@ -188,17 +186,16 @@ public final class TShark {
 
     /** One TCP connection as a new capture file, kept whole so Wireshark can reassemble it. */
     public byte[] extract(Path capture, int stream, long timeoutSeconds) throws TsharkException {
-        Path copy = null, out = null;
+        Path out = null;
         try {
             out = Files.createTempFile(Path.of("/tmp"), "pcap-analyzer-", ".pcapng");
             Process p = pump(pb(binary, "-n", "-r", "-", "-Y", "tcp.stream == " + stream, "-w", out.toString()).redirectErrorStream(true).start(), capture);
             p.getInputStream().readAllBytes();
-            if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) { p.destroyForcibly(); throw new TsharkException("tshark took too long"); }
+            awaitOrKill(p, timeoutSeconds, "tshark");
             return Files.readAllBytes(out);
         } catch (IOException | InterruptedException e) {
             throw new TsharkException("tshark could not be run: " + e.getMessage());
         } finally {
-            if (copy != null) try { Files.deleteIfExists(copy); } catch (IOException ignored) { }
             if (out != null) try { Files.deleteIfExists(out); } catch (IOException ignored) { }
         }
     }
@@ -211,13 +208,12 @@ public final class TShark {
 
     /** Files carried in the capture, as Wireshark's Export Objects finds them. Returns false when this tshark does not know the protocol. */
     public boolean exportObjects(Path capture, String protocol, Path outDir, long timeoutSeconds) throws TsharkException {
-        Path copy = null;
         try {
             Path tmpOut = Files.createTempDirectory(Path.of("/tmp"), "pcap-analyzer-obj-");
             try {
                 Process p = pump(pb(binary, "-n", "-r", "-", "-q", "--export-objects", protocol + "," + tmpOut).redirectErrorStream(true).start(), capture);
                 p.getInputStream().readNBytes(4000);
-                if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) { p.destroyForcibly(); throw new TsharkException("tshark took too long"); }
+                awaitOrKill(p, timeoutSeconds, "tshark");
                 if (p.exitValue() != 0) return false;
                 try (var ds = Files.newDirectoryStream(tmpOut)) { for (Path f : ds) if (Files.isRegularFile(f)) Files.move(f, outDir.resolve(f.getFileName()), StandardCopyOption.REPLACE_EXISTING); }
                 return true;
@@ -226,27 +222,20 @@ public final class TShark {
             }
         } catch (IOException | InterruptedException e) {
             throw new TsharkException("tshark could not be run: " + e.getMessage());
-        } finally {
-            if (copy != null) try { Files.deleteIfExists(copy); } catch (IOException ignored) { }
         }
     }
 
     /** The text of one tshark statistic, such as io,phs. */
     public String statsText(Path capture, String statistic, long timeoutSeconds) throws TsharkException {
-        Path copy = null;
         try {
             Process p = pump(pb(binary, "-n", "-r", "-", "-q", "-z", statistic).redirectError(ProcessBuilder.Redirect.DISCARD).start(), capture);
-            Thread killer = new Thread(() -> { try { if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) p.destroyForcibly(); } catch (InterruptedException ignored) { } });
-            killer.setDaemon(true);
-            killer.start();
+            Thread killer = killAfter(p, timeoutSeconds);
             byte[] data = p.getInputStream().readNBytes(2_000_000);
             p.destroy();
             killer.interrupt();
             return new String(data, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new TsharkException("tshark could not be run: " + e.getMessage());
-        } finally {
-            if (copy != null) try { Files.deleteIfExists(copy); } catch (IOException ignored) { }
         }
     }
 
@@ -277,16 +266,7 @@ public final class TShark {
         });
         drain.setDaemon(true);
         drain.start();
-        Thread killer = null;
-        if (timeoutSeconds > 0) {
-            killer = new Thread(() -> {
-                try {
-                    if (!p.waitFor(timeoutSeconds, TimeUnit.SECONDS)) p.destroyForcibly();
-                } catch (InterruptedException ignored) { }
-            });
-            killer.setDaemon(true);
-            killer.start();
-        }
+        Thread killer = timeoutSeconds > 0 ? killAfter(p, timeoutSeconds) : null;
         try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8), 1 << 16)) {
             String line;
             while ((line = r.readLine()) != null) {

@@ -52,6 +52,9 @@ public final class Pages {
             Map.entry("stats", "<path d=\"M4 20h16M7 16v-5M12 16V6M17 16v-8\"/>"),
             Map.entry("menu", "<path d=\"M4 7h16M4 12h16M4 17h16\"/>"));
 
+    /** The hidden form token every POST form carries. */
+    static String csrf(Ctx c) { return "<input type=\"hidden\" name=\"csrf_token\" value=\"" + c.csrf() + "\">"; }
+
     static String icon(String name) {
         return "<svg class=\"icon\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\">"
                 + ICONS.getOrDefault(name, "") + "</svg>";
@@ -112,7 +115,7 @@ public final class Pages {
         sb.append("<header class=\"top\"><button type=\"button\" class=\"icon-button nav-toggle\" aria-controls=\"side\" aria-expanded=\"false\" data-nav-toggle>")
           .append(icon("menu")).append("<span class=\"sr\">").append(esc(c.t("Menu"))).append("</span></button>\n<div class=\"top-end\">\n");
         sb.append("<form method=\"post\" action=\"").append(p).append("/language\" class=\"language\"><input type=\"hidden\" name=\"back\" value=\"").append(esc(c.uri()))
-          .append("\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><label><span>").append(esc(c.t("Language"))).append("</span><select name=\"language\" data-submit>");
+          .append("\">").append(csrf(c)).append("<label><span>").append(esc(c.t("Language"))).append("</span><select name=\"language\" data-submit>");
         for (String code : Knowledge.LANGUAGES)
             sb.append("<option value=\"").append(code).append("\"").append(code.equals(c.lang()) ? " selected" : "").append(">").append(Knowledge.LANGUAGE_NAMES.get(code)).append("</option>");
         sb.append("</select></label><noscript><button>").append(esc(c.t("Save"))).append("</button></noscript></form>\n</div></header>\n");
@@ -169,8 +172,8 @@ public final class Pages {
                 sb.append("</div><dl class=\"tiles\"><div><dt>").append(esc(c.t("Size"))).append("</dt><dd>").append(Fmt.size((Number) m.get("size"))).append("</dd></div><div><dt>")
                   .append(esc(c.t("Connections"))).append("</dt><dd>").append(m.get("connections")).append("</dd></div><div><dt>").append(esc(c.t("Requests"))).append("</dt><dd>")
                   .append(m.get("transactions")).append("</dd></div></dl>");
-                if (Boolean.TRUE.equals(m.get("_deletable"))) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf())
-                  .append("\"><button class=\"link danger\" aria-label=\"").append(esc(c.t("Delete {name}", "name", m.get("filename")))).append("\">").append(esc(c.t("Delete"))).append("</button></form></li>\n");
+                if (Boolean.TRUE.equals(m.get("_deletable"))) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/delete\">").append(csrf(c))
+                  .append("<button class=\"link danger\" aria-label=\"").append(esc(c.t("Delete {name}", "name", m.get("filename")))).append("\">").append(esc(c.t("Delete"))).append("</button></form></li>\n");
             }
             sb.append("</ol>");
         }
@@ -178,7 +181,7 @@ public final class Pages {
         if (!Users.can(Users.Role.ANALYST)) sb.append("<p class=\"hint\">").append(esc(c.t("Your role can open and export captures. Ask an admin to upload or delete them."))).append("</p>\n");
         else {
         sb.append("<section class=\"panel\">\n<h2>").append(esc(c.t("Analyze a capture"))).append("</h2>\n");
-        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/upload\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\">\n");
+        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/upload\" enctype=\"multipart/form-data\">").append(csrf(c)).append("\n");
         sb.append("<label class=\"drop\"><span>").append(esc(c.t("Capture file, up to {n} MB (.cap, .pcap, .pcapng)", "n", maxMb))).append("</span><input type=\"file\" name=\"capture\" required></label>\n");
         sb.append("<details><summary>").append(esc(c.t("Add more parts of the same capture"))).append("</summary><div class=\"fields\"><label>").append(esc(c.t("More parts"))).append(" <input type=\"file\" name=\"more\" multiple></label></div><p class=\"hint\">")
           .append(esc(c.t("Parts are joined in time order. gzip files are unpacked first. The limit applies to the joined size."))).append("</p></details>\n");
@@ -345,7 +348,7 @@ public final class Pages {
         }
         sb.append("</table></div></details>");
         if (id.equals(c.baseline())) sb.append("<span class=\"status s2\">").append(esc(c.t("Baseline"))).append("</span>");
-        else if (Users.can(Users.Role.ANALYST)) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/baseline\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><button>").append(esc(c.t("Set as baseline"))).append("</button></form>");
+        else if (Users.can(Users.Role.ANALYST)) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/baseline\">").append(csrf(c)).append("<button>").append(esc(c.t("Set as baseline"))).append("</button></form>");
         sb.append("<a class=\"button primary\" href=\"").append(c.path()).append("/a/").append(id).append("/inspect\">").append(esc(c.t("Inspect traffic"))).append("</a></div></div>\n");
         if (tab.equals("overview") && requests > 0) sb.append(score(c, http)).append(metrics(c, http));
         sb.append("</header>\n<div id=\"tab\">");
@@ -394,7 +397,7 @@ public final class Pages {
             sb.append("</section>");
             if (requests > 0) sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Status codes"))).append("</h2>").append(chart(c, "statuses", id, "statuses", false, false)).append("</section>");
             if (Users.can(Users.Role.ANALYST)) sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Case and notes"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/a/").append(id)
-              .append("/notes\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><div class=\"fields\"><label>").append(esc(c.t("Case number")))
+              .append("/notes\">").append(csrf(c)).append("<div class=\"fields\"><label>").append(esc(c.t("Case number")))
               .append(" <input id=\"case\" name=\"case\" maxlength=\"80\" value=\"").append(esc(notes.get("case"))).append("\"></label><label>").append(esc(c.t("Tags")))
               .append(" <input id=\"tags\" name=\"tags\" maxlength=\"200\" value=\"").append(esc(notes.get("tags"))).append("\"></label><label class=\"wide\">").append(esc(c.t("Note")))
               .append(" <textarea id=\"note\" name=\"note\" rows=\"3\" maxlength=\"4000\">").append(esc(notes.get("note"))).append("</textarea></label></div><button>")
@@ -747,13 +750,13 @@ public final class Pages {
                 StringBuilder qs = new StringBuilder();
                 for (String k : Records.FILTER_FIELDS) if (f.get(k) != null && !f.get(k).toString().isEmpty()) qs.append(k).append('=').append(java.net.URLEncoder.encode(f.get(k).toString(), java.nio.charset.StandardCharsets.UTF_8)).append('&');
                 sb.append("<li><a href=\"").append(c.path()).append("/a/").append(id).append("/inspect?").append(qs).append("\">").append(esc(f.get("name"))).append("</a><form method=\"post\" action=\"").append(c.path()).append("/filters/").append(f.get("id"))
-                  .append("/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><input type=\"hidden\" name=\"back\" value=\"/a/").append(id).append("/inspect\"><button class=\"link danger\" aria-label=\"")
+                  .append("/delete\">").append(csrf(c)).append("<input type=\"hidden\" name=\"back\" value=\"/a/").append(id).append("/inspect\"><button class=\"link danger\" aria-label=\"")
                   .append(esc(c.t("Delete filter {name}", "name", f.get("name")))).append("\">").append(esc(c.t("Delete"))).append("</button></form></li>");
             }
             sb.append("</ul>");
         }
-        sb.append("<details class=\"save\"><summary>").append(esc(c.t("Save this filter"))).append("</summary><form method=\"post\" action=\"").append(c.path()).append("/filters\" class=\"inline\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
-          .append(c.csrf()).append("\"><input type=\"hidden\" name=\"back\" value=\"/a/").append(id).append("/inspect\">");
+        sb.append("<details class=\"save\"><summary>").append(esc(c.t("Save this filter"))).append("</summary><form method=\"post\" action=\"").append(c.path()).append("/filters\" class=\"inline\">")
+          .append(csrf(c)).append("<input type=\"hidden\" name=\"back\" value=\"/a/").append(id).append("/inspect\">");
         for (String k : Records.FILTER_FIELDS) sb.append("<input type=\"hidden\" name=\"").append(k).append("\" value=\"").append(esc(Optional.ofNullable(Inspect.str(params, k)).orElse(""))).append("\">");
         sb.append("<label>").append(esc(c.t("Name"))).append(" <input name=\"filter_name\" required maxlength=\"80\"></label><button>").append(esc(c.t("Save filter"))).append("</button></form><p class=\"hint\">")
           .append(esc(c.t("Saves the filter as it was last applied."))).append("</p></details></div></section>");
@@ -1022,8 +1025,8 @@ public final class Pages {
     public static String preferencesPage(Ctx c, Map<String, Object> limits, String targetsText, List<Map<String, Object>> tokens, String newToken, String error) {
         StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>" + esc(c.t("Preferences")) + "</h1><p class=\"muted\">" + esc(c.t("These apply to everyone who uses this install.")) + " <a href=\"" + c.path() + "/audit\">" + esc(c.t("Activity log")) + "</a></p></div></header>");
         if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
-        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Limits"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/preferences\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf())
-          .append("\"><div class=\"fields\"><label>").append(esc(c.t("Slow request limit (seconds)"))).append(" <input id=\"slow\" name=\"slow\" inputmode=\"decimal\" value=\"").append(limits.get("slow_s")).append("\"></label><label class=\"wide\">")
+        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Limits"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/preferences\">").append(csrf(c))
+          .append("<div class=\"fields\"><label>").append(esc(c.t("Slow request limit (seconds)"))).append(" <input id=\"slow\" name=\"slow\" inputmode=\"decimal\" value=\"").append(limits.get("slow_s")).append("\"></label><label class=\"wide\">")
           .append(esc(c.t("URL targets"))).append(" <textarea id=\"targets\" name=\"targets\" rows=\"5\" spellcheck=\"false\" placeholder=\"/api/orders/* 0.5\">").append(esc(targetsText)).append("</textarea></label></div><p class=\"hint\">")
           .append(esc(c.t("One URL pattern and its limit in seconds per line. The slow limit applies to captures you analyze from now on. URL targets apply to every capture."))).append("</p><button class=\"primary\">").append(esc(c.t("Save limits"))).append("</button></form></section>");
         sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Password"))).append("</h2><a class=\"button\" href=\"").append(c.path()).append("/password\">").append(esc(c.t("Change the password"))).append("</a></section>");
@@ -1033,10 +1036,10 @@ public final class Pages {
             sb.append("<table><thead><tr><th>").append(esc(c.t("Name"))).append("</th><th>").append(esc(c.t("Created"))).append("</th><th></th></tr></thead><tbody>");
             for (Map<String, Object> t : tokens)
                 sb.append("<tr><td>").append(esc(t.get("name") == null || t.get("name").toString().isEmpty() ? t.get("id") : t.get("name"))).append("</td><td>").append(Fmt.when(Analysis.dn(t.get("created")))).append("</td><td class=\"num\"><form method=\"post\" action=\"")
-                  .append(c.path()).append("/tokens/").append(t.get("id")).append("/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><button class=\"link danger\">").append(esc(c.t("Revoke"))).append("</button></form></td></tr>");
+                  .append(c.path()).append("/tokens/").append(t.get("id")).append("/delete\">").append(csrf(c)).append("<button class=\"link danger\">").append(esc(c.t("Revoke"))).append("</button></form></td></tr>");
             sb.append("</tbody></table>");
         }
-        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/tokens\" class=\"inline\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><label>").append(esc(c.t("Name")))
+        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/tokens\" class=\"inline\">").append(csrf(c)).append("<label>").append(esc(c.t("Name")))
           .append(" <input id=\"tokenName\" name=\"name\" required maxlength=\"80\"></label><button>").append(esc(c.t("Create token"))).append("</button></form></section>");
         return sb.toString();
     }
@@ -1452,7 +1455,7 @@ public final class Pages {
             .append("</p></div></header>");
         if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
         if (message != null) sb.append("<p class=\"ok\" role=\"status\">").append(esc(message)).append("</p>");
-        String csrf = "<input type=\"hidden\" name=\"csrf_token\" value=\"" + c.csrf() + "\">";
+        String csrf = csrf(c);
         java.util.function.BiFunction<String, String, String> groupSelect = (cur, form) -> {
             StringBuilder o = new StringBuilder("<select name=\"group\" required").append(form == null ? "" : " form=\"" + form + "\"").append(" aria-label=\"").append(esc(c.t("Group"))).append("\">");
             if (cur == null || !groups.contains(cur)) o.append("<option value=\"\" selected disabled>").append(esc(c.t("Choose a group"))).append("</option>");
@@ -1546,7 +1549,7 @@ public final class Pages {
             .append("</p></div></header>");
         if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
         if (message != null) sb.append("<p class=\"ok\" role=\"status\">").append(esc(message)).append("</p>");
-        String csrf = "<input type=\"hidden\" name=\"csrf_token\" value=\"" + c.csrf() + "\">";
+        String csrf = csrf(c);
         List<Map<String, Object>> alerts = Vault.alerts();
         if (!alerts.isEmpty()) {
             sb.append("<section class=\"panel flush alert-panel\"><h2 class=\"pad\">").append(esc(c.t("Files changed by hand"))).append("</h2><div class=\"table-wrap\"><table><thead><tr><th>")
@@ -1576,7 +1579,7 @@ public final class Pages {
         if (Passwords.mustChange() && Users.current() != null && Users.current().setupAdmin())
             sb.append("<p class=\"warn\" role=\"alert\">").append(esc(c.t("This is the first sign-in with admin / admin. Choose a new password to continue."))).append("</p>");
         if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
-        sb.append("<section class=\"panel\"><form method=\"post\" action=\"").append(c.path()).append("/password\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><div class=\"fields\"><label>")
+        sb.append("<section class=\"panel\"><form method=\"post\" action=\"").append(c.path()).append("/password\">").append(csrf(c)).append("<div class=\"fields\"><label>")
           .append(esc(c.t("Current password"))).append(" <input type=\"password\" name=\"current\" required autocomplete=\"current-password\"></label><label>").append(esc(c.t("New password")))
           .append(" <input type=\"password\" name=\"new\" required minlength=\"").append(Passwords.MIN_LENGTH).append("\" autocomplete=\"new-password\"></label><label>").append(esc(c.t("New password again")))
           .append(" <input type=\"password\" name=\"again\" required autocomplete=\"new-password\"></label></div><button class=\"primary\">").append(esc(c.t("Change the password"))).append("</button></form></section>");

@@ -51,6 +51,12 @@ public class AppServlet extends HttpServlet {
         }
     }
 
+    /** A form or query value, or "" when it is missing. */
+    private static String param(HttpServletRequest req, String name) {
+        String v = req.getParameter(name);
+        return v == null ? "" : v;
+    }
+
     private static boolean csrfOk(HttpServletRequest req) {
         String t = req.getParameter("csrf_token");
         return t != null && MessageDigest.isEqual(t.getBytes(StandardCharsets.UTF_8), token().getBytes(StandardCharsets.UTF_8));
@@ -170,7 +176,11 @@ public class AppServlet extends HttpServlet {
         List<String> ids = new ArrayList<>();
         String path = req.getServletPath(), info = req.getPathInfo() == null ? "" : req.getPathInfo().substring(1);
         if (List.of("/a", "/api/a", "/export", "/analysis", "/api/analysis").contains(path)) ids.add(info.split("/")[0]);
-        if (path.equals("/api/v1") && info.startsWith("captures/")) ids.add(info.split("/")[1]);
+        // every REST route that names an analysis: analyses/{id}..., captures/{id}, and jobs/{id}, whose id is the analysis id
+        if (path.equals("/api/v1")) {
+            String[] seg = info.split("/");
+            if (seg.length >= 2 && (seg[0].equals("analyses") || seg[0].equals("captures") || seg[0].equals("jobs"))) ids.add(seg[1]);
+        }
         for (String k : new String[] {"a", "b", "base", "baseline"}) if (req.getParameter(k) != null) ids.add(req.getParameter(k));
         ids.removeIf(i -> !ID.matcher(i).matches());
         return ids;
@@ -227,7 +237,7 @@ public class AppServlet extends HttpServlet {
         Pages.Ctx c = ctx(req);
         switch (path) {
             case "" -> {
-                String q = Optional.ofNullable(req.getParameter("q")).orElse("").strip();
+                String q = param(req, "q").strip();
                 List<Map<String, Object>> analyses = list(q);
                 String main = Pages.home(c, analyses, q, (int) (Settings.MAX_UPLOAD >> 20), TTL_DAYS, null);
                 html(res, 200, Pages.layout(c, c.t("Captures"), "captures", "", main, recent(), null));
@@ -334,7 +344,7 @@ public class AppServlet extends HttpServlet {
         if (info.equals("alerts/clear")) { Vault.clearAlerts(); res.sendRedirect(req.getContextPath() + "/security"); return; }
         Users.Current me = Users.current();
         if (me == null || !me.setupAdmin()) { security(res, c, null, c.t("Only the setup admin can set the master key, since it is wrapped with that admin's password.")); return; }
-        String key = Optional.ofNullable(req.getParameter("master")).orElse(""), again = Optional.ofNullable(req.getParameter("again")).orElse("");
+        String key = param(req, "master"), again = param(req, "again");
         String problem = Vault.masterProblem(key);
         if (problem == null && !key.equals(again)) problem = "The two keys are not the same.";
         if (problem != null) { security(res, c, null, c.t(problem)); return; }
@@ -361,8 +371,8 @@ public class AppServlet extends HttpServlet {
     /** Adds, changes and deletes users. Admin only, which AuthFilter checks. */
     private void usersPost(HttpServletRequest req, HttpServletResponse res, String info) throws IOException {
         Pages.Ctx c = ctx(req);
-        String name = Optional.ofNullable(req.getParameter("name")).orElse("").strip().toLowerCase(Locale.ROOT);
-        String group = Optional.ofNullable(req.getParameter("group")).orElse("").strip().toLowerCase(Locale.ROOT);
+        String name = param(req, "name").strip().toLowerCase(Locale.ROOT);
+        String group = param(req, "group").strip().toLowerCase(Locale.ROOT);
         String password = req.getParameter("password");
         Users.Role role = Users.Role.of(req.getParameter("role"));
         String fullName = req.getParameter("full_name"), employeeId = req.getParameter("employee_id");
@@ -379,7 +389,7 @@ public class AppServlet extends HttpServlet {
         }
         if (info.equals("ldap/test")) { users(res, c, Ldap.test(req.getParameter("test_user")), null); return; }
         if (info.equals("groups")) {
-            String gname = Optional.ofNullable(req.getParameter("group_name")).orElse("").strip().toLowerCase(Locale.ROOT);
+            String gname = param(req, "group_name").strip().toLowerCase(Locale.ROOT);
             String problem = Users.groupProblem(gname);
             if (problem != null) { users(res, c, null, c.t(problem)); return; }
             Users.addGroup(gname, req.getParameter("description"));
@@ -533,7 +543,7 @@ public class AppServlet extends HttpServlet {
         if (!(result.get("version") instanceof Number v) || v.intValue() < Analysis.RESULT_VERSION) {
             String body = Pages.crumbs(c, new String[][] {{c.t("Captures"), c.path() + "/"}, {(String) meta.get("filename"), null}})
                     + "<p class=\"warn\">" + Fmt.esc(c.t("This analysis was saved by an older version. Analyze the capture again to see TLS details.")) + "</p>"
-                    + "<form method=\"post\" action=\"" + c.path() + "/a/" + id + "/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"" + c.csrf() + "\"><button class=\"link danger\">" + Fmt.esc(c.t("Delete")) + "</button></form>";
+                    + "<form method=\"post\" action=\"" + c.path() + "/a/" + id + "/delete\">" + Pages.csrf(c) + "<button class=\"link danger\">" + Fmt.esc(c.t("Delete")) + "</button></form>";
             html(res, 200, Pages.layout(c, (String) meta.get("filename"), "captures", "", body, recent(), id));
             return;
         }
@@ -786,7 +796,7 @@ public class AppServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse res) throws IOException, ServletException {
         String path = req.getServletPath();
         String info = req.getPathInfo() == null ? "" : req.getPathInfo().substring(1);
-        if (path.equals("/api/v1")) { apiV1(req, res, info, "POST"); return; }
+        if (path.equals("/api/v1")) { if (allowed(req, res)) apiV1(req, res, info, "POST"); return; }
         if (!csrfOk(req)) { res.sendError(403, "Invalid form token"); return; }
         if (!allowed(req, res)) return;
         switch (path) {
@@ -812,7 +822,7 @@ public class AppServlet extends HttpServlet {
                 if (me != null && !me.setupAdmin() && Users.isLdap(me.name())) { res.sendError(400, "An LDAP user's password is set in the directory."); return; }
                 if (me != null && !me.setupAdmin()) {
                     // a user of users.json changes only their own password
-                    String cur = Optional.ofNullable(req.getParameter("current")).orElse(""), nw = Optional.ofNullable(req.getParameter("new")).orElse(""), ag = Optional.ofNullable(req.getParameter("again")).orElse("");
+                    String cur = param(req, "current"), nw = param(req, "new"), ag = param(req, "again");
                     String err = Users.verify(me.name(), cur) == null ? c.t("The current password is not correct.") : !nw.equals(ag) ? c.t("The two new passwords are not the same.") : null;
                     if (err == null) { String pr = Users.problem(me.name(), null, nw, false); if (pr != null) err = c.t(pr, "n", Passwords.MIN_LENGTH); }
                     if (err != null) { html(res, 422, Pages.layout(c, c.t("Password"), "password", "", Pages.passwordPage(c, err), recent(), null)); return; }
@@ -821,7 +831,7 @@ public class AppServlet extends HttpServlet {
                     res.sendRedirect(req.getContextPath() + "/");
                     return;
                 }
-                String current = Optional.ofNullable(req.getParameter("current")).orElse(""), next = Optional.ofNullable(req.getParameter("new")).orElse(""), again = Optional.ofNullable(req.getParameter("again")).orElse("");
+                String current = param(req, "current"), next = param(req, "new"), again = param(req, "again");
                 String error = null;
                 if (!Passwords.matches(current)) error = c.t("The current password is not correct.");
                 else if (next.length() < Passwords.MIN_LENGTH) error = c.t("The new password must have at least {n} characters.", "n", Passwords.MIN_LENGTH);
@@ -837,9 +847,9 @@ public class AppServlet extends HttpServlet {
             }
             case "/preferences" -> {
                 List<String> bad = new ArrayList<>();
-                List<Map<String, Object>> targets = Records.parseTargets(Optional.ofNullable(req.getParameter("targets")).orElse(""), bad);
+                List<Map<String, Object>> targets = Records.parseTargets(param(req, "targets"), bad);
                 double slow;
-                try { slow = Double.parseDouble(Optional.ofNullable(req.getParameter("slow")).orElse("").strip()); if (!(slow > 0 && slow < 3600)) throw new NumberFormatException(); }
+                try { slow = Double.parseDouble(param(req, "slow").strip()); if (!(slow > 0 && slow < 3600)) throw new NumberFormatException(); }
                 catch (NumberFormatException e) { preferences(req, res, ctx(req), null, ctx(req).t("The slow limit must be a number of seconds.")); return; }
                 if (!bad.isEmpty()) { preferences(req, res, ctx(req), null, ctx(req).t("These lines could not be read: {lines}", "lines", String.join("; ", bad))); return; }
                 Records.saveThresholds(slow, targets);
@@ -903,6 +913,7 @@ public class AppServlet extends HttpServlet {
     @Override
     protected void doDelete(HttpServletRequest req, HttpServletResponse res) throws IOException {
         if (!req.getServletPath().equals("/api/v1")) { res.sendError(405); return; }
+        if (!allowed(req, res)) return;
         apiV1(req, res, req.getPathInfo() == null ? "" : req.getPathInfo().substring(1), "DELETE");
     }
 
@@ -1024,7 +1035,7 @@ public class AppServlet extends HttpServlet {
             } catch (Exception e) { throw new IllegalArgumentException("host"); }
             parts.add((h.contains(":") ? "ipv6" : "ip") + ".addr == " + h);
         }
-        String port = Optional.ofNullable(req.getParameter("port")).orElse("").strip();
+        String port = param(req, "port").strip();
         if (!port.isEmpty()) {
             try {
                 int n = Integer.parseInt(port);
@@ -1035,7 +1046,7 @@ public class AppServlet extends HttpServlet {
         Double from = epoch(req.getParameter("start")), until = epoch(req.getParameter("end"));
         if (from != null) parts.add("frame.time_epoch >= " + from);
         if (until != null) parts.add("frame.time_epoch <= " + until);
-        String display = Optional.ofNullable(req.getParameter("display_filter")).orElse("").strip();
+        String display = param(req, "display_filter").strip();
         if (!display.isEmpty()) {
             if (!DisplayFilters.PRESETS.containsKey(display)) throw new IllegalArgumentException("filter");
             parts.add("(" + display + ")");
@@ -1058,9 +1069,7 @@ public class AppServlet extends HttpServlet {
             if (api) apiError(res, 400, c.t("The filter is not valid.")); else fail(res, c, c.t("The filter is not valid."));
             return;
         }
-        byte[] rnd = new byte[8];
-        RANDOM.nextBytes(rnd);
-        String id = HexFormat.of().formatHex(rnd);
+        String id = Settings.randomHex(8);
         Path dir = dir(id);
         Files.createDirectories(dir);
         writeOwner(dir);
@@ -1097,7 +1106,7 @@ public class AppServlet extends HttpServlet {
                 if (!new String(Files.readAllBytes(rsa), StandardCharsets.ISO_8859_1).contains("-----BEGIN")) throw new TShark.TsharkException(c.t("This is not a key or certificate file."));
             }
             List<String> decode = new ArrayList<>();
-            for (String rule : Optional.ofNullable(req.getParameter("decode_as")).orElse("").split("[;\\n]")) {
+            for (String rule : param(req, "decode_as").split("[;\\n]")) {
                 String r = rule.replace(" ", "").strip();
                 if (r.isEmpty()) continue;
                 java.util.regex.Matcher m = DECODE_AS.matcher(r);

@@ -2,7 +2,6 @@ package io.pcapanalyzer;
 
 import java.io.Console;
 import java.nio.file.*;
-import java.security.SecureRandom;
 import java.util.*;
 
 /**
@@ -77,9 +76,7 @@ public final class Cli {
         if (opt.get("port") != null) parts.add("tcp.port == " + Integer.parseInt(opt.get("port")));
         if (opt.get("display-filter") != null) parts.add("(" + opt.get("display-filter") + ")");
         String filter = String.join(" and ", parts);
-        byte[] rnd = new byte[8];
-        new SecureRandom().nextBytes(rnd);
-        String id = HexFormat.of().formatHex(rnd);
+        String id = Settings.randomHex(8);
         Path dir = Settings.workdir().resolve(id);
         Files.createDirectories(dir);
         Path cap = dir.resolve("capture.bin");
