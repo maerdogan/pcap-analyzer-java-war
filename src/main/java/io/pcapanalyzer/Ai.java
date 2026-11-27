@@ -67,8 +67,31 @@ public final class Ai {
     private static volatile Models cached;
     private static volatile long cachedAt;
 
-    /** Asks `opencode models`, at most once in five minutes unless refresh is true. */
-    public static synchronized Models models(boolean refresh) {
+    /** The models the admin allows, from the ones OpenCode lists. Nothing until the admin has chosen. */
+    public static Models models(boolean refresh) {
+        Models all = allModels(refresh);
+        if (all.error() != null) return all;
+        Set<String> chosen = chosen();
+        return new Models(all.list().stream().filter(chosen::contains).toList(), null);
+    }
+
+    static Path chosenFile() { return Settings.workdir().resolve("ai-models.json"); }
+
+    /** What the admin allows, as PROVIDER/MODEL. */
+    public static Set<String> chosen() {
+        Set<String> out = new TreeSet<>();
+        if (Vault.readJson(chosenFile()) instanceof List<?> l) for (Object o : l) out.add(String.valueOf(o));
+        return out;
+    }
+
+    public static void choose(Collection<String> models) throws IOException {
+        Set<String> ok = new TreeSet<>();
+        for (String m : models) if (m != null && MODEL.matcher(m).matches() && m.contains("/")) ok.add(m);
+        Vault.writeText(chosenFile(), Json.write(new ArrayList<>(ok)));
+    }
+
+    /** Every model OpenCode lists (within PCAP_ANALYZER_OPENCODE_MODELS), for the admin to choose from. Asks at most once in five minutes unless refresh is true. */
+    public static synchronized Models allModels(boolean refresh) {
         if (!enabled()) return new Models(List.of(), "off");
         long now = System.currentTimeMillis();
         if (!refresh && cached != null && cached.error() == null && now - cachedAt < 300_000) return cached;
@@ -152,25 +175,56 @@ public final class Ai {
         return Json.write(out);
     }
 
+    /** The same JSON with line breaks and indents, for reading. */
+    public static String pretty(String json) {
+        StringBuilder sb = new StringBuilder(json.length() * 2);
+        int depth = 0;
+        boolean str = false, esc = false;
+        for (int i = 0; i < json.length(); i++) {
+            char ch = json.charAt(i);
+            if (str) { sb.append(ch); if (esc) esc = false; else if (ch == '\\') esc = true; else if (ch == '"') str = false; continue; }
+            switch (ch) {
+                case '"' -> { str = true; sb.append(ch); }
+                case '{', '[' -> {
+                    char close = ch == '{' ? '}' : ']';
+                    if (i + 1 < json.length() && json.charAt(i + 1) == close) { sb.append(ch).append(close); i++; }
+                    else { sb.append(ch).append('\n').append("  ".repeat(++depth)); }
+                }
+                case '}', ']' -> sb.append('\n').append("  ".repeat(Math.max(0, --depth))).append(ch);
+                case ',' -> sb.append(",\n").append("  ".repeat(depth));
+                case ':' -> sb.append(": ");
+                default -> sb.append(ch);
+            }
+        }
+        return sb.toString();
+    }
+
     private static Object cut(Object list, int n) {
         return list instanceof List<?> l && l.size() > n ? new ArrayList<>(l.subList(0, n)) : list;
+    }
+
+    /** What a run would send, as {prompt, context}, so the person can read it before asking. */
+    public static String[] preview(String filename, Map<String, Object> result, String question, String lang) {
+        String q = question == null || question.isBlank() ? defaultQuestion() : question.strip();
+        if (q.length() > 2000) q = q.substring(0, 2000);
+        return new String[] {prompt(q, lang), context(filename, result)};
     }
 
     // ---- runs
 
     /** One question to one model, as it is saved with the analysis. */
     public static final class Job {
-        public final String id = Settings.randomHex(6), model, question, user;
+        public final String id = Settings.randomHex(6), model, question, user, prompt, context;
         public final long started = System.currentTimeMillis();
         public volatile long finished;
         public volatile String state = "running", answer = "", error = "";
-        Job(String model, String question, String user) { this.model = model; this.question = question; this.user = user; }
+        Job(String model, String question, String user, String prompt, String context) { this.model = model; this.question = question; this.user = user; this.prompt = prompt; this.context = context; }
 
         Map<String, Object> toMap() {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", id); m.put("model", model); m.put("question", question); m.put("user", user);
             m.put("state", state); m.put("started", started / 1000.0); m.put("finished", finished / 1000.0);
-            m.put("answer", answer); m.put("error", error);
+            m.put("prompt", prompt); m.put("context", context); m.put("answer", answer); m.put("error", error);
             return m;
         }
     }
@@ -210,9 +264,9 @@ public final class Ai {
         if (!listed.list().contains(model)) throw new Refused("This model is not offered by OpenCode.");
         String q = question == null || question.isBlank() ? defaultQuestion() : question.strip();
         if (q.length() > 2000) q = q.substring(0, 2000);
-        Job job = new Job(model, q, user == null ? "" : user);
-        if (RUNNING.compute(id, (k, old) -> old != null && old.state.equals("running") ? old : job) != job) throw new Refused("An AI analysis of this capture is already running.");
         String context = context(filename, result), prompt = prompt(q, lang);
+        Job job = new Job(model, q, user == null ? "" : user, prompt, context);
+        if (RUNNING.compute(id, (k, old) -> old != null && old.state.equals("running") ? old : job) != job) throw new Refused("An AI analysis of this capture is already running.");
         POOL.submit(() -> {
             try {
                 job.answer = ask(model, prompt, context);

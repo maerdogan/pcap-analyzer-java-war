@@ -47,7 +47,7 @@ class AiTest {
 
     @Test void listsModelsFromOpencode() throws Exception {
         fake();
-        Ai.Models m = Ai.models(true);
+        Ai.Models m = Ai.allModels(true);
         assertNull(m.error());
         assertEquals(List.of("anthropic/claude-x", "bad/x", "openai/gpt-y"), m.list());
     }
@@ -70,7 +70,7 @@ class AiTest {
         fake();
         var e = assertThrows(java.io.IOException.class, () -> Ai.ask("bad/x", "p", "{}"));
         assertTrue(e.getMessage().contains("exited with 3") && e.getMessage().contains("boom"), e.getMessage());
-        Ai.models(true);
+        Ai.allModels(true);
         assertThrows(Ai.Refused.class, () -> Ai.start("0123456789abcdef", "a.pcap", Map.of(), "nobody/none", "", "en", "t"));
         assertThrows(Ai.Refused.class, () -> Ai.start("0123456789abcdef", "a.pcap", Map.of(), "no-slash", "", "en", "t"));
     }
@@ -88,9 +88,32 @@ class AiTest {
     @Test void pageListsModelsGroupedAndEscapes() throws Exception {
         fake();
         var c = new Pages.Ctx("/app", "tr", "tok", "/", "0123456789abcdef", null);
-        String html = Pages.aiPage(c, new LinkedHashMap<>(Map.of("id", "0123456789abcdef", "filename", "<x>.pcap")), Ai.models(true), "openai/gpt-y", true);
+        String html = Pages.aiPage(c, new LinkedHashMap<>(Map.of("id", "0123456789abcdef", "filename", "<x>.pcap")), Ai.allModels(true), "openai/gpt-y", true);
         assertTrue(html.contains("<optgroup label=\"anthropic\">") && html.contains("<option value=\"openai/gpt-y\" selected>gpt-y</option>"), html);
         assertTrue(html.contains("Yapay zekâ ile analiz et") && html.contains("&lt;x&gt;.pcap") && !html.contains("<x>"), html);
         assertTrue(Pages.capnav(c, "0123456789abcdef", "ai", 0).contains("/ai\""));
+    }
+
+    @Test void usersSeeOnlyWhatTheAdminChose() throws Exception {
+        fake();
+        String old = System.getProperty("user.dir");
+        System.setProperty("user.dir", tmp.toString());
+        try {
+            Files.createDirectories(Settings.workdir());
+            assertEquals(List.of(), Ai.models(true).list(), "nothing is offered until the admin chooses");
+            Ai.choose(List.of("openai/gpt-y", "../etc/passwd", "nobody/none"));
+            assertEquals(List.of("openai/gpt-y"), Ai.models(false).list(), "only chosen models OpenCode really lists");
+            assertEquals(List.of("anthropic/claude-x", "bad/x", "openai/gpt-y"), Ai.allModels(false).list());
+            assertThrows(Ai.Refused.class, () -> Ai.start("0123456789abcdef", "a.pcap", Map.of(), "anthropic/claude-x", "", "en", "t"));
+        } finally { System.setProperty("user.dir", old); }
+    }
+
+    @Test void whatIsSentCanBeShown() throws Exception {
+        String[] pv = Ai.preview("a.pcap", Map.of("issues", List.of(), "summary", Map.of("n", 1)), "why slow?", "en");
+        assertTrue(pv[0].contains("Question: why slow?") && pv[0].contains("English"));
+        assertTrue(Ai.pretty(pv[1]).contains("\n  \"capture\": \"a.pcap\""), Ai.pretty(pv[1]));
+        var c = new Pages.Ctx("/app", "en", "tok", "/", "x", null);
+        String html = Pages.sentFragment(c, "<b>", pv[1]);
+        assertTrue(html.contains("&lt;b&gt;") && html.contains("context.json"));
     }
 }

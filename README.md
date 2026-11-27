@@ -76,14 +76,14 @@ java -jar pcap-analyzer-cli.jar set-password
 
 An analyst opens **AI analysis** in a capture's side menu, picks a model, optionally asks a question, and the chosen model reads the analysis and explains where the time goes. The answers are saved, encrypted, with the analysis (the last 10).
 
-The models are whatever the server's OpenCode lists (`opencode models`), so sign in to your providers on the server, as the user that runs Tomcat:
+The models are whatever the server's OpenCode lists (`opencode models`), but users only see the ones the admin ticks under **Settings → AI models**; until the admin has chosen, no model is offered. Sign in to your providers on the server, as the user that runs Tomcat:
 
 ```bash
 opencode auth login               # once per provider; or configure a local model in opencode.json
 export PCAP_ANALYZER_OPENCODE=opencode          # in setenv.sh; a full path also works
 ```
 
-What happens on a run: the analysis result (totals, issues, slowest requests, top URLs, connections, hosts; secrets are masked, the capture and packet payloads are **not** included) is written to `context.json` in an empty temporary folder, and `opencode run --model PROVIDER/MODEL --file context.json "…"` runs there with edit, shell and web tools denied. The folder is deleted afterwards. The summary does go to the model's provider, so use a provider you may send this traffic to, or a local model, and limit the choice with `PCAP_ANALYZER_OPENCODE_MODELS`. Each run is written to the audit log.
+What happens on a run: the analysis result (totals, issues, slowest requests, top URLs, connections, hosts; secrets are masked, the capture and packet payloads are **not** included) is written as a JSON text file, `context.json`, in an empty temporary folder, and `opencode run --model PROVIDER/MODEL --file context.json "…"` runs there with edit, shell and web tools denied. The folder is deleted afterwards. The summary does go to the model's provider, so use a provider you may send this traffic to, or a local model, and limit the choice with `PCAP_ANALYZER_OPENCODE_MODELS`. The page shows exactly what is sent: **Show what will be sent** before a run, and **Show everything that was sent** (the instruction text and `context.json`, in a pop-up) for every saved answer. Each run is written to the audit log.
 
 REST: `GET /api/v1/ai/models`, `POST /api/v1/analyses/{id}/ai` (`model`, optional `question`, `language`; returns `202`), `GET /api/v1/analyses/{id}/ai` (the run in progress and the saved answers).
 

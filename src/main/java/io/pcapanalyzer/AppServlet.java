@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  * GET  /api/a/{id}/{timeline|statuses|histogram|urls|connections|result}
  * POST /language
  */
-@WebServlet(urlPatterns = {"", "/upload", "/language", "/a/*", "/api/a/*", "/analysis/*", "/api/analysis/*", "/export/*", "/capture-guide", "/preferences", "/audit", "/trend", "/compare", "/tokens", "/tokens/*", "/filters", "/filters/*", "/api/v1/*", "/password", "/users", "/users/*", "/security", "/security/*"})
+@WebServlet(urlPatterns = {"", "/upload", "/language", "/a/*", "/api/a/*", "/analysis/*", "/api/analysis/*", "/export/*", "/capture-guide", "/preferences", "/audit", "/trend", "/compare", "/tokens", "/tokens/*", "/filters", "/filters/*", "/api/v1/*", "/password", "/users", "/users/*", "/security", "/security/*", "/ai-models"})
 @MultipartConfig(maxFileSize = Settings.MAX_UPLOAD, maxRequestSize = Settings.MAX_UPLOAD + (1 << 20), fileSizeThreshold = 1 << 20)
 public class AppServlet extends HttpServlet {
     private static final Pattern ID = Pattern.compile("[0-9a-f]{16}");
@@ -267,6 +267,7 @@ public class AppServlet extends HttpServlet {
             case "/preferences" -> preferences(req, res, c, null, null);
             case "/users" -> users(res, c, null, null);
             case "/security" -> security(res, c, null, null);
+            case "/ai-models" -> aiModels(req, res, c, false);
             case "/audit" -> {
                 String event = Inspect.str(req.getParameterMap(), "event");
                 html(res, 200, Pages.layout(c, c.t("Activity log"), "audit", "", Pages.auditPage(c, Records.readAudit(event, 500), event), recent(), null));
@@ -337,6 +338,10 @@ public class AppServlet extends HttpServlet {
     private static String word(String v, String dflt) { return v != null && WORD.matcher(v).matches() ? v : dflt; }
     private static String hostArg(String v) { return v != null && v.matches("[0-9A-Fa-f:.]{2,45}") ? v : null; }
     private static String imageArg(String v) { return v != null && v.matches("[A-Za-z0-9._/:@-]{1,200}") ? v : CaptureGuide.DEFAULT_IMAGE; }
+
+    private void aiModels(HttpServletRequest req, HttpServletResponse res, Pages.Ctx c, boolean unused) throws IOException {
+        html(res, 200, Pages.layout(c, c.t("AI models"), "ai-models", "", Pages.aiModelsPage(c, Ai.allModels("1".equals(req.getParameter("refresh"))), Ai.chosen(), "1".equals(req.getParameter("saved"))), recent(), null));
+    }
 
     private void security(HttpServletResponse res, Pages.Ctx c, String message, String error) throws IOException {
         html(res, error == null ? 200 : 422, Pages.layout(c, c.t("Encryption"), "security", "", Pages.securityPage(c, message, error), Vault.isUnlocked() ? recent() : List.of(), null));
@@ -610,6 +615,16 @@ public class AppServlet extends HttpServlet {
             title = c.t("Export objects");
         } else if (parts.length >= 2 && parts[1].equals("ai") && Ai.enabled()) {
             if (parts.length == 3 && parts[2].equals("status")) { html(res, 200, Pages.aiResults(c, id)); return; }
+            if (parts.length == 3 && parts[2].equals("preview")) {
+                String[] pv = Ai.preview(String.valueOf(meta.get("filename")), result, req.getParameter("question"), c.lang());
+                html(res, 200, Pages.sentFragment(c, pv[0], pv[1]));
+                return;
+            }
+            if (parts.length == 4 && parts[2].equals("run")) {
+                for (Map<String, Object> r : Ai.history(id)) if (parts[3].equals(r.get("id")) && r.get("prompt") != null) { html(res, 200, Pages.sentFragment(c, String.valueOf(r.get("prompt")), String.valueOf(r.get("context")))); return; }
+                res.sendError(404);
+                return;
+            }
             if (parts.length != 2) { res.sendError(404); return; }
             @SuppressWarnings("unchecked") List<Map<String, Object>> past = Ai.history(id);
             String last = past.isEmpty() ? "" : String.valueOf(past.get(0).get("model"));
@@ -831,6 +846,11 @@ public class AppServlet extends HttpServlet {
             case "/upload" -> upload(req, res);
             case "/users" -> usersPost(req, res, info);
             case "/security" -> securityPost(req, res, info);
+            case "/ai-models" -> {
+                Ai.choose(Arrays.asList(Optional.ofNullable(req.getParameterValues("model")).orElse(new String[0])));
+                Records.audit("ai_models", req.getRemoteAddr(), String.join(",", Ai.chosen()));
+                res.sendRedirect(req.getContextPath() + "/ai-models?saved=1");
+            }
             case "/password" -> {
                 Pages.Ctx c = ctx(req);
                 Users.Current me = Users.current();

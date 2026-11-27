@@ -92,12 +92,12 @@ public final class Pages {
         for (String[] n : mainNav)
             sb.append("<a href=\"").append(p).append(n[1]).append("\"").append(section.equals(n[0]) ? " aria-current=\"page\"" : "").append(">").append(icon(n[0])).append("<span>").append(esc(c.t(n[2]))).append("</span></a>");
         String[][] settingsNav = admin
-            ? new String[][] {{"preferences", "/preferences", "Preferences"}, {"users", "/users", "Users"}, {"security", "/security", "Encryption"}, {"password", "/password", "Password"}, {"audit", "/audit", "Activity log"}}
+            ? new String[][] {{"preferences", "/preferences", "Preferences"}, {"users", "/users", "Users"}, {"security", "/security", "Encryption"}, {"password", "/password", "Password"}, {"audit", "/audit", "Activity log"}, {"ai-models", "/ai-models", "AI models"}}
             : new String[][] {{"password", "/password", "Password"}};
         boolean inSettings = false;
         for (String[] n : settingsNav) inSettings |= section.equals(n[0]);
         sb.append("<details class=\"side-sub\"").append(inSettings ? " open" : "").append("><summary>").append(icon("preferences")).append("<span>").append(esc(c.t("Settings"))).append("</span></summary>");
-        for (String[] n : settingsNav)
+        for (String[] n : settingsNav) if (!n[0].equals("ai-models") || Ai.enabled())
             sb.append("<a href=\"").append(p).append(n[1]).append("\"").append(section.equals(n[0]) ? " aria-current=\"page\"" : "").append("><span>").append(esc(c.t(n[2]))).append("</span></a>");
         sb.append("</details>");
         sb.append("</nav>\n");
@@ -703,7 +703,8 @@ public final class Pages {
         if (models.error() != null) {
             sb.append("<p class=\"error\" role=\"alert\">").append(esc(c.t("The model list could not be read: {why}", "why", models.error()))).append("</p>");
         } else if (models.list().isEmpty()) {
-            sb.append("<p class=\"warn\">").append(esc(c.t("OpenCode lists no models. Sign in to a provider on the server with: opencode auth login"))).append("</p>");
+            sb.append("<p class=\"warn\">").append(esc(Users.can(Users.Role.ADMIN)
+                    ? c.t("No model is allowed yet. Choose the models people may use under AI models.") : c.t("The admin has not allowed any AI model yet."))).append("</p>");
         } else {
             sb.append("<label>").append(esc(c.t("Model"))).append("<select name=\"model\" required>");
             for (Map.Entry<String, List<String>> g : Ai.byProvider(models.list()).entrySet()) {
@@ -717,10 +718,13 @@ public final class Pages {
               .append(esc(c.t("Leave empty for a general review: why are the requests slow or failing?"))).append("\"></textarea></label>");
             if (canRun) sb.append("<p><button class=\"primary\">").append(esc(c.t("Analyze with AI"))).append("</button> ");
             else sb.append("<p>");
+            sb.append("<button type=\"button\" data-dialog-url=\"").append(c.path()).append("/a/").append(id).append("/ai/preview\" data-dialog-field=\"question\">").append(esc(c.t("Show what will be sent"))).append("</button> ");
             sb.append("<a class=\"button\" href=\"").append(c.path()).append("/a/").append(id).append("/ai?refresh=1\">").append(esc(c.t("Refresh model list"))).append("</a></p>");
             sb.append("<p class=\"muted\">").append(esc(c.t("The analysis summary is sent to the provider of the model you choose. Use a model that is allowed to see this traffic."))).append("</p>");
         }
-        sb.append("</form></section>\n");
+        sb.append("</form>");
+        if (Users.can(Users.Role.ADMIN)) sb.append("<p><a href=\"").append(c.path()).append("/ai-models\">").append(esc(c.t("AI models"))).append(" →</a></p>");
+        sb.append("</section>\n<dialog id=\"ai-dialog\" class=\"ai-dialog\"><form method=\"dialog\"><button class=\"link\">").append(esc(c.t("Close"))).append("</button></form><div id=\"ai-dialog-body\"></div></dialog>\n");
         sb.append("<div id=\"ai-results\" data-poll=\"").append(c.path()).append("/a/").append(id).append("/ai/status\">").append(aiResults(c, id)).append("</div>");
         return sb.toString();
     }
@@ -739,11 +743,50 @@ public final class Pages {
             boolean ok = "done".equals(r.get("state"));
             sb.append("<details class=\"ai-run\"").append(first ? " open" : "").append("><summary>").append(esc(String.valueOf(r.get("model")))).append(" · ")
               .append(esc(Fmt.when(Analysis.dn(r.get("started"))))).append(ok ? "" : " · " + esc(c.t("Failed"))).append("</summary>");
-            sb.append("<p class=\"muted\">").append(esc(String.valueOf(r.get("question")))).append("</p>");
+            String prompt = String.valueOf(r.get("prompt"));
+            if (r.get("prompt") != null) {
+                sb.append("<h3>").append(esc(c.t("Sent to the model"))).append("</h3><pre class=\"ai-sent\">")
+                  .append(esc(prompt.length() > 600 ? prompt.substring(0, 600) + " …" : prompt)).append("</pre>")
+                  .append("<p><button type=\"button\" data-dialog-url=\"").append(c.path()).append("/a/").append(id).append("/ai/run/").append(esc(String.valueOf(r.get("id"))))
+                  .append("\">").append(esc(c.t("Show everything that was sent"))).append("</button></p>");
+            } else sb.append("<p class=\"muted\">").append(esc(String.valueOf(r.get("question")))).append("</p>");
             if (ok) sb.append("<pre class=\"ai-answer\">").append(esc(String.valueOf(r.get("answer")))).append("</pre>");
             else sb.append("<p class=\"error\">").append(esc(String.valueOf(r.get("error")))).append("</p>");
             sb.append("</details>");
             first = false;
+        }
+        return sb.append("</section>").toString();
+    }
+
+    /** Everything a model is sent: the instruction text and the file that goes with it. */
+    public static String sentFragment(Ctx c, String prompt, String context) {
+        return "<h2>" + esc(c.t("Sent to the model")) + "</h2>"
+                + "<p class=\"muted\">" + esc(c.t("The capture file is not sent. The model gets this text and one JSON text file, context.json ({size}), made from the analysis.", "size", Fmt.size(context.getBytes(java.nio.charset.StandardCharsets.UTF_8).length))) + "</p>"
+                + "<h3>" + esc(c.t("Instruction")) + "</h3><pre>" + esc(prompt) + "</pre>"
+                + "<h3>context.json</h3><pre>" + esc(Ai.pretty(context)) + "</pre>";
+    }
+
+    /** Admin only: which of the models OpenCode lists people may use. */
+    public static String aiModelsPage(Ctx c, Ai.Models all, Set<String> chosen, boolean saved) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<header class=\"page-head\"><div><h1>").append(esc(c.t("AI models"))).append("</h1><p class=\"muted\">")
+          .append(esc(c.t("Only the models you tick are offered to users on the AI analysis page."))).append("</p></div></header>");
+        if (saved) sb.append("<p class=\"ok\" role=\"status\">").append(esc(c.t("Saved."))).append("</p>");
+        sb.append("<section class=\"panel\">");
+        if (!Ai.enabled()) sb.append("<p class=\"warn\">").append(esc(c.t("The AI help is off. The server admin turns it on by setting PCAP_ANALYZER_OPENCODE to the opencode program."))).append("</p>");
+        else if (all.error() != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(c.t("The model list could not be read: {why}", "why", all.error()))).append("</p>");
+        else if (all.list().isEmpty()) sb.append("<p class=\"warn\">").append(esc(c.t("OpenCode lists no models. Sign in to a provider on the server with: opencode auth login"))).append("</p>");
+        else {
+            sb.append("<form method=\"post\" action=\"").append(c.path()).append("/ai-models\">").append(csrf(c));
+            for (Map.Entry<String, List<String>> g : Ai.byProvider(all.list()).entrySet()) {
+                sb.append("<fieldset><legend>").append(esc(g.getKey())).append("</legend>");
+                for (String m : g.getValue())
+                    sb.append("<label class=\"check\"><input type=\"checkbox\" name=\"model\" value=\"").append(esc(m)).append("\"").append(chosen.contains(m) ? " checked" : "").append("> ")
+                      .append(esc(m.substring(m.indexOf('/') + 1))).append("</label> ");
+                sb.append("</fieldset>");
+            }
+            sb.append("<p><button class=\"primary\">").append(esc(c.t("Save"))).append("</button> <a class=\"button\" href=\"").append(c.path()).append("/ai-models?refresh=1\">")
+              .append(esc(c.t("Refresh model list"))).append("</a></p></form>");
         }
         return sb.append("</section>").toString();
     }

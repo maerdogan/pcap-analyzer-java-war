@@ -273,6 +273,22 @@
     });
   }
 
+  // A button with data-dialog-url shows what the server returns in the page's dialog. data-dialog-field names a form field sent along.
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-dialog-url]");
+    if (!b) return;
+    const dialog = document.getElementById("ai-dialog"), body = document.getElementById("ai-dialog-body");
+    if (!dialog || !body) return;
+    let url = b.dataset.dialogUrl;
+    if (b.dataset.dialogField) {
+      const f = b.form && b.form.elements[b.dataset.dialogField];
+      url += "?" + b.dataset.dialogField + "=" + encodeURIComponent(f ? f.value : "");
+    }
+    body.textContent = "…";
+    if (dialog.showModal) dialog.showModal(); else dialog.setAttribute("open", "");
+    try { const reply = await fetch(url); body.innerHTML = reply.ok ? await reply.text() : "Error " + reply.status; } catch (err) { body.textContent = String(err); }
+  });
+
   function setup(root) {
     setupLoaders(root);
     setupPollers(root);

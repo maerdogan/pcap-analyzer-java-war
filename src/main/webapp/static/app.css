@@ -479,3 +479,7 @@ code.secret { font-size: 1rem; letter-spacing: .05em; }
 .ai-answer { max-height: none; font: 1rem/1.55 inherit; font-family: inherit; white-space: pre-wrap; }
 .ai-form textarea { width: 100%; min-height: 4.5rem; }
 .ai-form select { min-width: min(100%, 26rem); }
+.ai-dialog { width: min(60rem, 94vw); max-height: 88vh; overflow: auto; border: 0; border-radius: var(--radius); padding: 1rem 1.3rem; box-shadow: 0 20px 60px rgba(0,0,0,.35); background: var(--surface); color: inherit; }
+.ai-dialog::backdrop { background: rgba(0,0,0,.45); }
+.ai-dialog pre { max-height: 50vh; }
+.ai-sent { max-height: 12rem; }
