@@ -251,8 +251,31 @@
     });
   }
 
+  // A fragment that is asked for again every few seconds while the server says its work is running, such as an AI analysis.
+  function setupPollers(root) {
+    root.querySelectorAll("[data-poll]").forEach((el) => {
+      if (el.dataset.polling) return;
+      el.dataset.polling = "1";
+      const tick = async () => {
+        try {
+          const reply = await fetch(el.dataset.poll);
+          if (reply.ok) {
+            const html = await reply.text();
+            const keep = html.includes("data-running");
+            el.innerHTML = html;
+            if (keep) { setTimeout(tick, 3000); return; }
+            return;
+          }
+        } catch (e) { /* try again */ }
+        setTimeout(tick, 5000);
+      };
+      setTimeout(tick, 3000);
+    });
+  }
+
   function setup(root) {
     setupLoaders(root);
+    setupPollers(root);
     setupSorting(root);
     setupGrids(root);
     setupCharts(root);

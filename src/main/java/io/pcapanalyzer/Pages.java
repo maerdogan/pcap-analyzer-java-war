@@ -40,6 +40,7 @@ public final class Pages {
             Map.entry("issues", "<path d=\"M12 4l9 16H3z\"/><path d=\"M12 10v4M12 17.5v.01\"/>"),
             Map.entry("hosts", "<rect x=\"4\" y=\"4\" width=\"16\" height=\"7\" rx=\"1.5\"/><rect x=\"4\" y=\"13\" width=\"16\" height=\"7\" rx=\"1.5\"/><path d=\"M8 7.5h.01M8 16.5h.01\"/>"),
             Map.entry("backends", "<ellipse cx=\"12\" cy=\"6\" rx=\"7\" ry=\"2.5\"/><path d=\"M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5\"/>"),
+            Map.entry("ai", "<path d=\"M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z\"/><path d=\"M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z\"/>"),
             Map.entry("inspect", "<circle cx=\"11\" cy=\"11\" r=\"6\"/><path d=\"M20 20l-4.5-4.5\"/>"),
             Map.entry("tls", "<rect x=\"5\" y=\"11\" width=\"14\" height=\"9\" rx=\"1.5\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/>"),
             Map.entry("compare", "<rect x=\"3\" y=\"4\" width=\"7\" height=\"16\" rx=\"1.5\"/><rect x=\"14\" y=\"4\" width=\"7\" height=\"16\" rx=\"1.5\"/>"),
@@ -139,13 +140,15 @@ public final class Pages {
 
     public static String capnav(Ctx c, String id, String current, long issueCount) {
         String[][] tabs = {{"overview", "", "Overview"}, {"issues", "?tab=issues", "Issues"}, {"urls", "?tab=urls", "URLs"}, {"connections", "?tab=connections", "Connections"},
-                {"hosts", "?tab=hosts", "Hosts"}, {"backends", "?tab=backends", "Servers"}, {"tls", "?tab=tls", "TLS"}, {"stats", "?tab=stats", "Statistics"}, {"inspect", "/inspect", "Inspect traffic"}};
+                {"hosts", "?tab=hosts", "Hosts"}, {"backends", "?tab=backends", "Servers"}, {"tls", "?tab=tls", "TLS"}, {"stats", "?tab=stats", "Statistics"}, {"inspect", "/inspect", "Inspect traffic"}, {"ai", "/ai", "AI analysis"}};
         StringBuilder sb = new StringBuilder("<nav class=\"side-group views\" aria-label=\"" + esc(c.t("Capture views")) + "\"><p class=\"side-label\" aria-hidden=\"true\">"
                 + esc(c.t("Capture views")) + "</p>\n");
-        for (String[] t : tabs)
+        for (String[] t : tabs) {
+            if (t[0].equals("ai") && !Ai.enabled()) continue;
             sb.append("<a href=\"").append(c.path()).append("/a/").append(id).append(t[1]).append("\"").append(t[0].equals(current) ? " aria-current=\"page\"" : "").append(">")
               .append(icon(t[0])).append("<span>").append(esc(t[2].equals("URLs") || t[2].equals("TLS") ? t[2] : c.t(t[2]))).append("</span>")
               .append(t[0].equals("issues") && issueCount > 0 ? "<span class=\"count\">" + issueCount + "</span>" : "").append("</a>\n");
+        }
         return sb.append("</nav>\n").toString();
     }
 
@@ -685,6 +688,66 @@ public final class Pages {
     }
 
     @SuppressWarnings("unchecked")
+    /** The AI analysis page: choose one of the models OpenCode offers, ask, and read the answers saved with the analysis. */
+    public static String aiPage(Ctx c, Map<String, Object> meta, Ai.Models models, String selected, boolean canRun) {
+        String id = (String) meta.get("id");
+        StringBuilder sb = new StringBuilder();
+        sb.append(crumbs(c, new String[][] {{c.t("Captures"), c.path() + "/"}, {(String) meta.get("filename"), c.path() + "/a/" + id}, {c.t("AI analysis"), null}}));
+        sb.append("<header class=\"page-head\"><div><h1>").append(esc(c.t("AI analysis"))).append("</h1><p class=\"muted\">")
+          .append(esc(c.t("A model you choose reads the analysis of {name} and explains where the time goes. Secrets are already masked; the capture itself is not sent.", "name", meta.get("filename"))))
+          .append("</p></div></header>");
+        if (!Ai.enabled()) {
+            return sb.append("<section class=\"panel\"><p class=\"warn\">").append(esc(c.t("The AI help is off. The server admin turns it on by setting PCAP_ANALYZER_OPENCODE to the opencode program."))).append("</p></section>").toString();
+        }
+        sb.append("<section class=\"panel\"><form class=\"ai-form\" method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/ai\">").append(csrf(c));
+        if (models.error() != null) {
+            sb.append("<p class=\"error\" role=\"alert\">").append(esc(c.t("The model list could not be read: {why}", "why", models.error()))).append("</p>");
+        } else if (models.list().isEmpty()) {
+            sb.append("<p class=\"warn\">").append(esc(c.t("OpenCode lists no models. Sign in to a provider on the server with: opencode auth login"))).append("</p>");
+        } else {
+            sb.append("<label>").append(esc(c.t("Model"))).append("<select name=\"model\" required>");
+            for (Map.Entry<String, List<String>> g : Ai.byProvider(models.list()).entrySet()) {
+                sb.append("<optgroup label=\"").append(esc(g.getKey())).append("\">");
+                for (String m : g.getValue())
+                    sb.append("<option value=\"").append(esc(m)).append("\"").append(m.equals(selected) ? " selected" : "").append(">").append(esc(m.substring(m.indexOf('/') + 1))).append("</option>");
+                sb.append("</optgroup>");
+            }
+            sb.append("</select></label>");
+            sb.append("<label>").append(esc(c.t("Question (optional)"))).append("<textarea name=\"question\" maxlength=\"2000\" placeholder=\"")
+              .append(esc(c.t("Leave empty for a general review: why are the requests slow or failing?"))).append("\"></textarea></label>");
+            if (canRun) sb.append("<p><button class=\"primary\">").append(esc(c.t("Analyze with AI"))).append("</button> ");
+            else sb.append("<p>");
+            sb.append("<a class=\"button\" href=\"").append(c.path()).append("/a/").append(id).append("/ai?refresh=1\">").append(esc(c.t("Refresh model list"))).append("</a></p>");
+            sb.append("<p class=\"muted\">").append(esc(c.t("The analysis summary is sent to the provider of the model you choose. Use a model that is allowed to see this traffic."))).append("</p>");
+        }
+        sb.append("</form></section>\n");
+        sb.append("<div id=\"ai-results\" data-poll=\"").append(c.path()).append("/a/").append(id).append("/ai/status\">").append(aiResults(c, id)).append("</div>");
+        return sb.toString();
+    }
+
+    /** The run in progress, then the saved answers. Marked data-running while a run is going, so the page asks again. */
+    public static String aiResults(Ctx c, String id) {
+        StringBuilder sb = new StringBuilder();
+        Ai.Job running = Ai.running(id);
+        if (running != null)
+            sb.append("<section class=\"panel\" data-running role=\"status\"><p>").append(esc(c.t("{model} is reading the analysis. This can take a few minutes.", "model", running.model))).append("</p></section>");
+        List<Map<String, Object>> runs = Ai.history(id);
+        if (runs.isEmpty() && running == null) return "";
+        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Answers"))).append("</h2>");
+        boolean first = true;
+        for (Map<String, Object> r : runs) {
+            boolean ok = "done".equals(r.get("state"));
+            sb.append("<details class=\"ai-run\"").append(first ? " open" : "").append("><summary>").append(esc(String.valueOf(r.get("model")))).append(" · ")
+              .append(esc(Fmt.when(Analysis.dn(r.get("started"))))).append(ok ? "" : " · " + esc(c.t("Failed"))).append("</summary>");
+            sb.append("<p class=\"muted\">").append(esc(String.valueOf(r.get("question")))).append("</p>");
+            if (ok) sb.append("<pre class=\"ai-answer\">").append(esc(String.valueOf(r.get("answer")))).append("</pre>");
+            else sb.append("<p class=\"error\">").append(esc(String.valueOf(r.get("error")))).append("</p>");
+            sb.append("</details>");
+            first = false;
+        }
+        return sb.append("</section>").toString();
+    }
+
     public static String inspectPage(Ctx c, Map<String, Object> meta, Map<String, String[]> params, Map<String, Object> result, Map<String, Object> inspected) {
         String id = (String) meta.get("id");
         List<Map<String, Object>> conns = (List<Map<String, Object>>) result.get("connections");

@@ -471,3 +471,11 @@ code.secret { font-size: 1rem; letter-spacing: .05em; }
 .who button.ghost { height: 34px; padding: 0 .8rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); }
 .who button.ghost:hover { background: var(--inset); }
 @media (max-width: 700px) { .who small { display: none; } }
+
+/* AI analysis */
+.ai-run { border-top: 1px solid var(--inset); padding: .8rem 0; }
+.ai-run:first-child { border-top: 0; }
+.ai-run > summary { cursor: pointer; font-weight: 600; }
+.ai-answer { max-height: none; font: 1rem/1.55 inherit; font-family: inherit; white-space: pre-wrap; }
+.ai-form textarea { width: 100%; min-height: 4.5rem; }
+.ai-form select { min-width: min(100%, 26rem); }

@@ -40,6 +40,9 @@ Sign in with HTTP Basic as `admin`. Open `/pcap-analyzer/`.
 | `PCAP_ANALYZER_GEOIP_DIR` | Folder with MaxMind GeoLite2 Country and ASN files. |
 | `PCAP_ANALYZER_REQUEST_ID_HEADER` | Header that follows a request through proxies. Default `x-request-id`. |
 | `PCAP_ANALYZER_CLIENT_IP_HEADER` | Headers that carry the original client, comma separated, tried in order. Default `x-forwarded-for,x-real-ip,true-client-ip,x-client-ip,client-ip,forwarded`. A NetScaler adds its own with *Client IP header* on the service. |
+| `PCAP_ANALYZER_OPENCODE` | Turns on the **AI analysis** page: the path of the [OpenCode](https://opencode.ai) program (`opencode` to use the PATH). Off when empty. See *AI analysis* below. |
+| `PCAP_ANALYZER_OPENCODE_MODELS` | Only these models may be chosen, comma separated: `PROVIDER/MODEL` or `PROVIDER/*`. Default: every model OpenCode lists. |
+| `PCAP_ANALYZER_OPENCODE_TIMEOUT_S` | Time limit of one AI run. Default 600. |
 | — | Users, groups and roles are managed by the admin under **Users**. They are kept in `users.json` in the work folder, passwords as PBKDF2 hashes. Each user sees only the captures uploaded in their group; admins see all. |
 | `PCAP_ANALYZER_HEALTH_PATHS` | More health check paths, comma separated, besides `/healthz`, `/ready`, `/actuator/health` and the like. Requests to them are marked as health checks. |
 
@@ -68,6 +71,21 @@ java -jar pcap-analyzer-cli.jar inspect ANALYSIS_ID --src 10.0.0.5 --dst 10.0.0.
 java -jar pcap-analyzer-cli.jar check ANALYSIS_ID --p95 0.5 --error-rate 1    # exit code 2 when a limit is broken
 java -jar pcap-analyzer-cli.jar set-password
 ```
+
+## AI analysis
+
+An analyst opens **AI analysis** in a capture's side menu, picks a model, optionally asks a question, and the chosen model reads the analysis and explains where the time goes. The answers are saved, encrypted, with the analysis (the last 10).
+
+The models are whatever the server's OpenCode lists (`opencode models`), so sign in to your providers on the server, as the user that runs Tomcat:
+
+```bash
+opencode auth login               # once per provider; or configure a local model in opencode.json
+export PCAP_ANALYZER_OPENCODE=opencode          # in setenv.sh; a full path also works
+```
+
+What happens on a run: the analysis result (totals, issues, slowest requests, top URLs, connections, hosts; secrets are masked, the capture and packet payloads are **not** included) is written to `context.json` in an empty temporary folder, and `opencode run --model PROVIDER/MODEL --file context.json "…"` runs there with edit, shell and web tools denied. The folder is deleted afterwards. The summary does go to the model's provider, so use a provider you may send this traffic to, or a local model, and limit the choice with `PCAP_ANALYZER_OPENCODE_MODELS`. Each run is written to the audit log.
+
+REST: `GET /api/v1/ai/models`, `POST /api/v1/analyses/{id}/ai` (`model`, optional `question`, `language`; returns `202`), `GET /api/v1/analyses/{id}/ai` (the run in progress and the saved answers).
 
 ## Large captures
 

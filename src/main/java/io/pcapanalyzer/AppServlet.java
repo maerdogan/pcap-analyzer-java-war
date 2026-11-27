@@ -608,6 +608,14 @@ public class AppServlet extends HttpServlet {
             main = Pages.objectsPage(c, meta, found);
             nav = Pages.capnav(c, id, "stats", issueCount);
             title = c.t("Export objects");
+        } else if (parts.length >= 2 && parts[1].equals("ai") && Ai.enabled()) {
+            if (parts.length == 3 && parts[2].equals("status")) { html(res, 200, Pages.aiResults(c, id)); return; }
+            if (parts.length != 2) { res.sendError(404); return; }
+            @SuppressWarnings("unchecked") List<Map<String, Object>> past = Ai.history(id);
+            String last = past.isEmpty() ? "" : String.valueOf(past.get(0).get("model"));
+            main = Pages.aiPage(c, meta, Ai.models("1".equals(req.getParameter("refresh"))), last, Users.can(Users.Role.ANALYST));
+            nav = Pages.capnav(c, id, "ai", issueCount);
+            title = c.t("AI analysis");
         } else if (parts.length == 2 && parts[1].equals("inspect")) {
             Map<String, String[]> params = req.getParameterMap();
             main = Pages.inspectPage(c, meta, params, result, Inspect.run(Inspect.query(params), result, Inspect.slow(params)));
@@ -903,6 +911,21 @@ public class AppServlet extends HttpServlet {
                     Records.audit("delete", req.getRemoteAddr(), p[0]);
                     deleteTree(dir(p[0]));
                     res.sendRedirect(req.getContextPath() + "/");
+                } else if (p[1].equals("ai")) {
+                    Map<String, Object> meta = read(dir(p[0]).resolve("meta.json")), result = read(dir(p[0]).resolve("result.json"));
+                    if (meta == null || result == null) { res.sendError(404); return; }
+                    try {
+                        Users.Current who = Users.current();
+                        Ai.Job job = Ai.start(p[0], String.valueOf(meta.get("filename")), result, param(req, "model"), param(req, "question"), language(req), who == null ? "" : who.name());
+                        Records.audit("ai_analysis", req.getRemoteAddr(), p[0] + " " + job.model);
+                    } catch (Ai.Refused e) {
+                        Pages.Ctx c = ctx(req).withId(p[0]);
+                        long n = ((List<?>) result.get("issues")).size();
+                        html(res, 400, Pages.layout(c, c.t("AI analysis"), "captures", Pages.capnav(c, p[0], "ai", n),
+                                "<p class=\"error\" role=\"alert\">" + Fmt.esc(c.t(e.getMessage())) + "</p>" + Pages.aiPage(c, meta, Ai.models(false), param(req, "model"), true), recent(), p[0]));
+                        return;
+                    }
+                    res.sendRedirect(req.getContextPath() + "/a/" + p[0] + "/ai");
                 } else if (p[1].equals("notes")) {
                     Map<String, Object> n = new LinkedHashMap<>();
                     n.put("case", cut(req.getParameter("case"), 80));
@@ -930,6 +953,13 @@ public class AppServlet extends HttpServlet {
         String[] p = info.split("/");
         try {
             if (method.equals("POST") && info.equals("captures")) { upload(req, res, true); return; }
+            if (method.equals("GET") && info.equals("ai/models")) {
+                Ai.Models m = Ai.models("1".equals(req.getParameter("refresh")));
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("enabled", Ai.enabled()); out.put("models", m.list()); out.put("error", m.error());
+                json(res, out);
+                return;
+            }
             if (method.equals("GET") && p.length == 2 && p[0].equals("jobs")) {
                 String[] j = JOBS.get(p[1]);
                 if (j == null) { apiError(res, 404, "No such job."); return; }
@@ -952,6 +982,25 @@ public class AppServlet extends HttpServlet {
                 Map<String, Object> meta = read(dir(p[1]).resolve("meta.json")), result = read(dir(p[1]).resolve("result.json"));
                 if (meta == null || result == null) { apiError(res, 404, "No such analysis."); return; }
                 if (p.length == 2) { json(res, meta); return; }
+                if (p.length == 3 && p[2].equals("ai")) {
+                    if (method.equals("POST")) {
+                        try {
+                            Ai.Job job = Ai.start(p[1], String.valueOf(meta.get("filename")), result, param(req, "model"), param(req, "question"), param(req, "language").isEmpty() ? language(req) : param(req, "language"), "api");
+                            Records.audit("ai_analysis", req.getRemoteAddr(), p[1] + " " + job.model);
+                            res.setStatus(202);
+                            json(res, job.toMap());
+                        } catch (Ai.Refused e) { apiError(res, 400, e.getMessage()); }
+                        return;
+                    }
+                    if (method.equals("GET")) {
+                        Map<String, Object> out = new LinkedHashMap<>();
+                        Ai.Job run = Ai.running(p[1]);
+                        out.put("running", run == null ? null : run.toMap());
+                        out.put("runs", Ai.history(p[1]));
+                        json(res, out);
+                        return;
+                    }
+                }
                 if (p.length == 3 && method.equals("GET")) {
                     Map<String, Object> out = new LinkedHashMap<>();
                     switch (p[2]) {
