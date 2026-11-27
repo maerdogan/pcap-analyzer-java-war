@@ -97,7 +97,7 @@ public final class Ai {
         if (!refresh && cached != null && cached.error() == null && now - cachedAt < 300_000) return cached;
         Models m;
         try {
-            Run r = exec(List.of(binary(), "models"), null, 60, null);
+            Run r = exec(List.of(binary(), "models"), null, 60, null, p -> { });
             if (r.exit != 0) m = new Models(List.of(), r.output.isBlank() ? "opencode exited with " + r.exit : tail(r.output, 400));
             else m = new Models(parseModels(r.output), null);
         } catch (IOException | InterruptedException e) {
@@ -218,6 +218,8 @@ public final class Ai {
         public final long started = System.currentTimeMillis();
         public volatile long finished;
         public volatile String state = "running", answer = "", error = "";
+        volatile Process process;
+        volatile boolean cancelled;
         Job(String model, String question, String user, String prompt, String context) { this.model = model; this.question = question; this.user = user; this.prompt = prompt; this.context = context; }
 
         Map<String, Object> toMap() {
@@ -269,18 +271,32 @@ public final class Ai {
         if (RUNNING.compute(id, (k, old) -> old != null && old.state.equals("running") ? old : job) != job) throw new Refused("An AI analysis of this capture is already running.");
         POOL.submit(() -> {
             try {
-                job.answer = ask(model, prompt, context);
-                job.state = "done";
+                if (job.cancelled) throw new IOException("Stopped.");
+                String text = ask(model, prompt, context, p -> { job.process = p; if (job.cancelled) kill(p); });
+                if (!job.cancelled) { job.answer = text; job.state = "done"; }
             } catch (Exception e) {
-                job.error = String.valueOf(e.getMessage());
-                job.state = "failed";
+                if (!job.cancelled) { job.error = String.valueOf(e.getMessage()); job.state = "failed"; }
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             } finally {
+                if (job.cancelled) { job.state = "cancelled"; job.error = ""; }
                 job.finished = System.currentTimeMillis();
                 try { save(id, job); } catch (IOException ignored) { }
             }
         });
         return job;
+    }
+
+    private static void kill(Process p) { p.descendants().forEach(ProcessHandle::destroyForcibly); p.destroyForcibly(); }
+
+    /** Stops the run in progress for an analysis: OpenCode and anything it started are killed. False when nothing was running. */
+    public static boolean cancel(String id) {
+        Job j = running(id);
+        if (j == null) return false;
+        j.cancelled = true;
+        j.state = "cancelled";
+        Process p = j.process;
+        if (p != null) kill(p);
+        return true;
     }
 
     private static void save(String id, Job job) throws IOException {
@@ -296,12 +312,14 @@ public final class Ai {
     static final String LOCKED_DOWN = "{\"permission\":{\"edit\":\"deny\",\"bash\":\"deny\",\"webfetch\":\"deny\"}}";
 
     /** Runs opencode in an empty temporary folder that holds only context.json, and returns the answer. */
-    static String ask(String model, String prompt, String context) throws IOException, InterruptedException {
+    static String ask(String model, String prompt, String context) throws IOException, InterruptedException { return ask(model, prompt, context, p -> { }); }
+
+    static String ask(String model, String prompt, String context, java.util.function.Consumer<Process> onStart) throws IOException, InterruptedException {
         Path tmp = Files.createTempDirectory("pcap-ai-");
         try {
             Files.writeString(tmp.resolve("context.json"), context, StandardCharsets.UTF_8);
             List<String> cmd = new ArrayList<>(List.of(binary(), "run", "--model", model, "--file", "context.json", "--", prompt));
-            Run r = exec(cmd, tmp, timeoutSeconds(), Map.of("OPENCODE_CONFIG_CONTENT", LOCKED_DOWN));
+            Run r = exec(cmd, tmp, timeoutSeconds(), Map.of("OPENCODE_CONFIG_CONTENT", LOCKED_DOWN), onStart);
             String text = r.output.strip();
             if (r.timedOut) throw new IOException("OpenCode did not answer within " + timeoutSeconds() + " seconds.");
             if (r.exit != 0) throw new IOException("OpenCode exited with " + r.exit + (text.isEmpty() ? "" : ": " + tail(text, 600)));
@@ -317,7 +335,7 @@ public final class Ai {
     record Run(int exit, String output, boolean timedOut) {}
 
     /** Runs a program without a shell, standard input closed, output (both streams) read in full, stopped after the limit. */
-    static Run exec(List<String> cmd, Path cwd, long seconds, Map<String, String> env) throws IOException, InterruptedException {
+    static Run exec(List<String> cmd, Path cwd, long seconds, Map<String, String> env, java.util.function.Consumer<Process> onStart) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
         if (cwd != null) pb.directory(cwd.toFile());
         pb.environment().put("NO_COLOR", "1");
@@ -325,6 +343,7 @@ public final class Ai {
         if (env != null) pb.environment().putAll(env);
         Process p = pb.start();
         p.getOutputStream().close();
+        onStart.accept(p);
         StringBuilder sb = new StringBuilder();
         Thread reader = new Thread(() -> {
             try (var in = p.getInputStream()) {

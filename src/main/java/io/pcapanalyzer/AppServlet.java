@@ -931,6 +931,9 @@ public class AppServlet extends HttpServlet {
                     Records.audit("delete", req.getRemoteAddr(), p[0]);
                     deleteTree(dir(p[0]));
                     res.sendRedirect(req.getContextPath() + "/");
+                } else if (p[1].equals("ai-cancel")) {
+                    if (Ai.cancel(p[0])) Records.audit("ai_cancelled", req.getRemoteAddr(), p[0]);
+                    res.sendRedirect(req.getContextPath() + "/a/" + p[0] + "/ai");
                 } else if (p[1].equals("ai")) {
                     Map<String, Object> meta = read(dir(p[0]).resolve("meta.json")), result = read(dir(p[0]).resolve("result.json"));
                     if (meta == null || result == null) { res.sendError(404); return; }
@@ -1010,6 +1013,12 @@ public class AppServlet extends HttpServlet {
                             res.setStatus(202);
                             json(res, job.toMap());
                         } catch (Ai.Refused e) { apiError(res, 400, e.getMessage()); }
+                        return;
+                    }
+                    if (method.equals("DELETE")) {
+                        if (!Ai.cancel(p[1])) { apiError(res, 404, "No AI analysis is running."); return; }
+                        Records.audit("ai_cancelled", req.getRemoteAddr(), p[1]);
+                        res.setStatus(204);
                         return;
                     }
                     if (method.equals("GET")) {

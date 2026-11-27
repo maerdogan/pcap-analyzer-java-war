@@ -18,9 +18,10 @@ class AiTest {
         Path bin = tmp.resolve("opencode");
         Files.writeString(bin, """
             #!/bin/sh
-            if [ "$1" = "models" ]; then printf 'anthropic/claude-x\\nopenai/gpt-y\\nbad/x\\nnot a model line\\n'; exit 0; fi
+            if [ "$1" = "models" ]; then printf 'anthropic/claude-x\\nopenai/gpt-y\\nslow/z\\nbad/x\\nnot a model line\\n'; exit 0; fi
             [ "$1" = "run" ] || exit 9
             model="$3"
+            [ "$model" = "slow/z" ] && { sleep 30; echo late; exit 0; }
             [ "$model" = "bad/x" ] && { echo boom >&2; exit 3; }
             echo "model=$model perm=$OPENCODE_CONFIG_CONTENT"
             echo "files=$(ls)"
@@ -49,7 +50,7 @@ class AiTest {
         fake();
         Ai.Models m = Ai.allModels(true);
         assertNull(m.error());
-        assertEquals(List.of("anthropic/claude-x", "bad/x", "openai/gpt-y"), m.list());
+        assertEquals(List.of("anthropic/claude-x", "bad/x", "openai/gpt-y", "slow/z"), m.list());
     }
 
     @Test void answersFromAModelWithOnlyTheContextFile() throws Exception {
@@ -103,7 +104,7 @@ class AiTest {
             assertEquals(List.of(), Ai.models(true).list(), "nothing is offered until the admin chooses");
             Ai.choose(List.of("openai/gpt-y", "../etc/passwd", "nobody/none"));
             assertEquals(List.of("openai/gpt-y"), Ai.models(false).list(), "only chosen models OpenCode really lists");
-            assertEquals(List.of("anthropic/claude-x", "bad/x", "openai/gpt-y"), Ai.allModels(false).list());
+            assertEquals(List.of("anthropic/claude-x", "bad/x", "openai/gpt-y", "slow/z"), Ai.allModels(false).list());
             assertThrows(Ai.Refused.class, () -> Ai.start("0123456789abcdef", "a.pcap", Map.of(), "anthropic/claude-x", "", "en", "t"));
         } finally { System.setProperty("user.dir", old); }
     }
@@ -115,5 +116,29 @@ class AiTest {
         var c = new Pages.Ctx("/app", "en", "tok", "/", "x", null);
         String html = Pages.sentFragment(c, "<b>", pv[1]);
         assertTrue(html.contains("&lt;b&gt;") && html.contains("context.json"));
+    }
+
+    @Test void aRunCanBeStopped() throws Exception {
+        fake();
+        String old = System.getProperty("user.dir");
+        System.setProperty("user.dir", tmp.toString());
+        try {
+            String id = "0123456789abcdef";
+            Files.createDirectories(Settings.workdir().resolve(id));
+            Ai.choose(List.of("slow/z"));
+            Ai.models(true);
+            assertFalse(Ai.cancel(id), "nothing runs yet");
+            long t0 = System.currentTimeMillis();
+            Ai.Job job = Ai.start(id, "a.pcap", Map.of("issues", List.of()), "slow/z", "", "en", "t");
+            Thread.sleep(700);
+            assertNotNull(Ai.running(id));
+            assertThrows(Ai.Refused.class, () -> Ai.start(id, "a.pcap", Map.of(), "slow/z", "", "en", "t"), "one run at a time");
+            assertTrue(Ai.cancel(id));
+            assertEquals("cancelled", job.state);
+            for (int i = 0; i < 50 && Ai.history(id).isEmpty(); i++) Thread.sleep(100);
+            assertTrue(System.currentTimeMillis() - t0 < 15_000, "stopped without waiting for the model");
+            assertEquals("cancelled", Ai.history(id).get(0).get("state"));
+            assertNull(Ai.running(id));
+        } finally { System.setProperty("user.dir", old); }
     }
 }

@@ -734,7 +734,8 @@ public final class Pages {
         StringBuilder sb = new StringBuilder();
         Ai.Job running = Ai.running(id);
         if (running != null)
-            sb.append("<section class=\"panel\" data-running role=\"status\"><p>").append(esc(c.t("{model} is reading the analysis. This can take a few minutes.", "model", running.model))).append("</p></section>");
+            sb.append("<section class=\"panel\" data-running role=\"status\"><p>").append(esc(c.t("{model} is reading the analysis. This can take a few minutes.", "model", running.model))).append("</p>")
+              .append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/ai-cancel\">").append(csrf(c)).append("<button class=\"danger\">").append(esc(c.t("Stop the analysis"))).append("</button></form></section>");
         List<Map<String, Object>> runs = Ai.history(id);
         if (runs.isEmpty() && running == null) return "";
         sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Answers"))).append("</h2>");
@@ -742,7 +743,7 @@ public final class Pages {
         for (Map<String, Object> r : runs) {
             boolean ok = "done".equals(r.get("state"));
             sb.append("<details class=\"ai-run\"").append(first ? " open" : "").append("><summary>").append(esc(String.valueOf(r.get("model")))).append(" · ")
-              .append(esc(Fmt.when(Analysis.dn(r.get("started"))))).append(ok ? "" : " · " + esc(c.t("Failed"))).append("</summary>");
+              .append(esc(Fmt.when(Analysis.dn(r.get("started"))))).append(ok ? "" : " · " + esc(c.t("cancelled".equals(r.get("state")) ? "Stopped" : "Failed"))).append("</summary>");
             String prompt = String.valueOf(r.get("prompt"));
             if (r.get("prompt") != null) {
                 sb.append("<h3>").append(esc(c.t("Sent to the model"))).append("</h3><pre class=\"ai-sent\">")
@@ -751,7 +752,7 @@ public final class Pages {
                   .append("\">").append(esc(c.t("Show everything that was sent"))).append("</button></p>");
             } else sb.append("<p class=\"muted\">").append(esc(String.valueOf(r.get("question")))).append("</p>");
             if (ok) sb.append("<pre class=\"ai-answer\">").append(esc(String.valueOf(r.get("answer")))).append("</pre>");
-            else sb.append("<p class=\"error\">").append(esc(String.valueOf(r.get("error")))).append("</p>");
+            else if (!"cancelled".equals(r.get("state"))) sb.append("<p class=\"error\">").append(esc(String.valueOf(r.get("error")))).append("</p>");
             sb.append("</details>");
             first = false;
         }
